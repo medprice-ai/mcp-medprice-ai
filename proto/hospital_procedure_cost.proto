@@ -1,0 +1,51 @@
+syntax = "proto3";
+package org.medical.price.transparency.api;
+
+import "scalapb/scalapb.proto";
+
+option java_multiple_files = true;
+option java_package = "org.medical.price.transparency.api";
+option java_outer_classname = "HospitalProcedureCostProto";
+option (scalapb.options) = {
+  scala3_sources: true
+};
+
+message HospitalProcedureCostRequest {
+  // e.g. "MS-DRG"
+  string code_type = 1;
+  // e.g. "652"
+  string code = 2;
+  // Methodology db string, e.g. "case rate". Empty means "all methodologies".
+  string methodology = 3;
+}
+
+message ProcedureCostStatsMessage {
+  string code_type = 1;
+  string code = 2;
+  string min = 3;
+  string max = 4;
+  string avg = 5;
+  string median = 6;
+  string std_dev = 7;
+  int64 procedure_count = 8;
+  int64 payer_count_median = 9;
+  string payer_count_avg = 10;
+  int64 payer_count_min = 11;
+  int64 payer_count_max = 12;
+}
+
+message HospitalCostResult {
+  string hospital = 1;
+  bool found = 2;
+  ProcedureCostStatsMessage cost = 3;
+}
+
+message HospitalProcedureCostResponse {
+  HospitalCostResult mca = 1;
+  HospitalCostResult uihc = 2;
+}
+
+service HospitalProcedureCostService {
+  rpc GetHospitalProcedureCost (HospitalProcedureCostRequest) returns (HospitalProcedureCostResponse);
+}
+
