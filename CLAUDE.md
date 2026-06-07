@@ -4,10 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-Run the MCP server:
+Run the MCP server (stdio, default):
 ```
 GRPC_HOST=<host:port> npx tsx src/index.ts
 ```
+
+Run the MCP server (streamable HTTP, for cloud deployment):
+```
+TRANSPORT=http GRPC_HOST=<host:port> npx tsx src/index.ts
+```
+
+`PORT` defaults to `3000`. All requests go to `POST /mcp`.
 
 Test gRPC connectivity directly:
 ```
@@ -31,7 +38,9 @@ This is a **TypeScript MCP (Model Context Protocol) server** that exposes hospit
 1. Loads `proto/hospital_procedure_cost.proto` at startup via `@grpc/proto-loader`
 2. Creates a gRPC client to `GRPC_HOST` (SSL, no auth config — uses system certs)
 3. Registers one MCP tool `get_hospital_procedure_cost` with `code_type` + `code` inputs
-4. Connects via `StdioServerTransport` — the process communicates over stdin/stdout as an MCP server
+4. Selects transport based on `TRANSPORT` env var:
+   - `TRANSPORT=http` — starts an HTTP server on `PORT` (default `3000`), handles all requests at `POST /mcp` via `StreamableHTTPServerTransport` (stateless, suitable for Cloud Run)
+   - default — connects via `StdioServerTransport` over stdin/stdout
 
 **Proto services** (backend is Scala/ScalaPB):
 - `HospitalProcedureCostService.GetHospitalProcedureCost` — returns cost stats (min/max/avg/median/std_dev, procedure count, payer count) for two hospitals: MCA and UIHC
