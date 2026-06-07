@@ -1,5 +1,6 @@
 import * as grpc from "@grpc/grpc-js"
 import * as protoLoader from "@grpc/proto-loader"
+import * as path from "path"
 
 import { z } from "zod"
 
@@ -8,157 +9,223 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StdioServerTransport }
 from "@modelcontextprotocol/sdk/server/stdio.js"
 
+import { StreamableHTTPServerTransport }
+from "@modelcontextprotocol/sdk/server/streamableHttp.js"
+
+import * as http from "http"
+
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema
 }
 from "@modelcontextprotocol/sdk/types.js"
 
-const packageDefinition =
-  protoLoader.loadSync(
-    "proto/hospital_procedure_cost.proto",
-    {
-      keepCase: true,
-      longs: String,
-      enums: String,
-      defaults: true,
-      oneofs: true
-    }
+const grpcHost = process.env.GRPC_HOST
+if (!grpcHost) {
+  process.stderr.write("FATAL: GRPC_HOST env var is not set\n")
+  process.exit(1)
+}
+
+const logStream = process.env.TRANSPORT === "http" ? process.stdout : process.stderr
+
+function log(level: "INFO" | "WARN" | "ERROR", message: string, extra?: Record<string, unknown>) {
+  logStream.write(JSON.stringify({ severity: level, message, ...extra }) + "\n")
+}
+
+let packageDefinition: protoLoader.PackageDefinition
+let client: any
+
+try {
+  packageDefinition =
+    protoLoader.loadSync(
+      path.resolve(__dirname, "../proto/hospital_procedure_cost.proto"),
+      {
+        keepCase: true,
+        longs: String,
+        enums: String,
+        defaults: true,
+        oneofs: true
+      }
+    )
+
+  const proto =
+    grpc.loadPackageDefinition(
+      packageDefinition
+    ) as any
+
+  const Service =
+    proto.org.medical.price.transparency.api
+      .HospitalProcedureCostService
+
+  client =
+    new Service(
+      grpcHost,
+      grpc.credentials.createSsl()
+    )
+
+  log("INFO", "proto loaded, gRPC client ready", { grpc_host: grpcHost })
+} catch (err) {
+  log("ERROR", "FATAL: failed to initialize gRPC client", { error: String(err) })
+  process.exit(1)
+}
+
+
+function createMcpServer(): Server {
+  const server =
+    new Server(
+      {
+        name:
+          "medical-price-mcp",
+        version:
+          "0.0.1"
+      },
+      {
+        capabilities: {
+          tools: {}
+        }
+      }
+    )
+
+  server.setRequestHandler(
+    ListToolsRequestSchema,
+
+    async () => ({
+      tools: [
+        {
+          name:
+            "get_hospital_procedure_cost",
+          description:
+            "Lookup hospital procedure cost",
+          inputSchema: {
+            type: "object",
+            properties: {
+              code_type: {
+                type: "string"
+              },
+              code: {
+                type: "string"
+              }
+            },
+            required: [
+              "code_type",
+              "code"
+            ]
+          }
+        }
+      ]
+    })
   )
 
-const proto =
-  grpc.loadPackageDefinition(
-    packageDefinition
-  ) as any
+  server.setRequestHandler(
+    CallToolRequestSchema,
+    async (request) => {
+      if (
+        request.params.name !==
+        "get_hospital_procedure_cost"
+      ) {
+        throw new Error(
+          "unknown tool"
+        )
+      }
 
-const Service =
- proto.org.medical.price.transparency.api
-   .HospitalProcedureCostService
+      const args =
+        z.object({
+          code_type:
+            z.string(),
+          code:
+            z.string()
+        }).parse(
+          request.params.arguments
+        )
 
-const client =
- new Service(
-   process.env.GRPC_HOST,
-   grpc.credentials.createSsl()
- )
+      log("INFO", "grpc request", { code_type: args.code_type, code: args.code })
+      const grpcStart = Date.now()
 
+      let response: unknown
+      try {
+        response = await new Promise(
+          (resolve, reject) => {
+            client.GetHospitalProcedureCost(
+              { code_type: args.code_type, code: args.code, methodology: "" },
+              (err: any, resp: any) => {
+                if (err) reject(err)
+                else resolve(resp)
+              }
+            )
+          }
+        )
+      } catch (err) {
+        log("ERROR", "grpc request failed", { code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart, error: String(err) })
+        throw err
+      }
 
-const server =
- new Server(
-   {
-     name:
-       "medical-price-mcp",
-     version:
-       "0.0.1"
-   },
-   {
-     capabilities: {
-       tools: {}
-     }
-   }
- )
+      log("INFO", "grpc response", { code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
 
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+             JSON.stringify(
+               response,
+               null,
+               2
+             )
+          }
+        ]
+      }
+    })
 
-server.setRequestHandler(
- ListToolsRequestSchema,
-
- async () => ({
-   tools: [
-     {
-       name:
-         "get_hospital_procedure_cost",
-       description:
-         "Lookup hospital procedure cost",
-       inputSchema: {
-         type: "object",
-         properties: {
-           code_type: {
-             type: "string"
-           },
-           code: {
-             type: "string"
-           }
-         },
-         required: [
-           "code_type",
-           "code"
-         ]
-       }
-     }
-   ]
- })
-)
-
-server.setRequestHandler(
- CallToolRequestSchema,
- async (request) => {
-   if (
-     request.params.name !==
-     "get_hospital_procedure_cost"
-   ) {
-     throw new Error(
-       "unknown tool"
-     )
-   }
-
-   const args =
-     z.object({
-       code_type:
-         z.string(),
-       code:
-         z.string()
-     }).parse(
-       request.params.arguments
-     )
-
-   const response =
-     await new Promise(
-       (
-         resolve,
-         reject
-       ) => {
-         client
-          .GetHospitalProcedureCost(
-            {
-              code_type:
-                args.code_type,
-              code:
-                args.code,
-              methodology:
-                ""
-            },
-            (
-              err: any,
-              resp: any
-            ) => {
-              if (err)
-                reject(err)
-              else
-                resolve(resp)
-            }
-          )
-       }
-     )
-   return {
-     content: [
-       {
-         type: "text",
-         text:
-          JSON.stringify(
-            response,
-            null,
-            2
-          )
-       }
-     ]
-   }
- })
+  return server
+}
 
 
 
 async function main() {
- await server.connect(
-   new StdioServerTransport()
- )
+  if (process.env.TRANSPORT === "http") {
+    const port = parseInt(process.env.PORT ?? "3000")
+
+    const httpServer = http.createServer(async (req, res) => {
+      if (req.url === "/mcp") {
+        const chunks: Buffer[] = []
+        req.on("data", (chunk: Buffer) => chunks.push(chunk))
+        req.on("end", async () => {
+          try {
+            const body = chunks.length
+              ? JSON.parse(Buffer.concat(chunks).toString())
+              : undefined
+            // Stateless mode: fresh server + transport per request
+            const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+            transport.onerror = (err) => log("ERROR", "MCP transport error", { error: String(err) })
+            const mcpServer = createMcpServer()
+            await mcpServer.connect(transport)
+            await transport.handleRequest(req, res, body)
+          } catch (err) {
+            log("ERROR", "MCP request error", { error: String(err) })
+            if (!res.headersSent) {
+              res.writeHead(500, { "Content-Type": "application/json" })
+              res.end(JSON.stringify({ error: String(err) }))
+            }
+          }
+        })
+      } else {
+        res.writeHead(404)
+        res.end()
+      }
+    })
+
+    httpServer.listen(port, () => {
+      log("INFO", `HTTP server listening on port ${port}`, { grpc_host: grpcHost })
+    })
+  } else {
+    try {
+      await createMcpServer().connect(new StdioServerTransport())
+      log("INFO", "MCP server connected via stdio", { grpc_host: grpcHost })
+    } catch (err) {
+      log("ERROR", "FATAL: MCP server failed to connect", { error: String(err) })
+      process.exit(1)
+    }
+  }
 }
 
 main()
