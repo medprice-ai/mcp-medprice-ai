@@ -26,8 +26,10 @@ if (!grpcHost) {
   process.exit(1)
 }
 
+const logStream = process.env.TRANSPORT === "http" ? process.stdout : process.stderr
+
 function log(level: "INFO" | "WARN" | "ERROR", message: string, extra?: Record<string, unknown>) {
-  process.stderr.write(JSON.stringify({ severity: level, message, ...extra }) + "\n")
+  logStream.write(JSON.stringify({ severity: level, message, ...extra }) + "\n")
 }
 
 let packageDefinition: protoLoader.PackageDefinition
