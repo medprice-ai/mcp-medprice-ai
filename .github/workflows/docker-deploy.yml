@@ -24,14 +24,19 @@ jobs:
       - name: Compute version tag
         id: version
         run: |
-          DESCRIBED=$(git describe --tags --long 2>/dev/null || echo "0.0.0-0-g${GITHUB_SHA:0:8}")
-          BASE_TAG=$(echo "$DESCRIBED" | sed 's/-[0-9]*-g[0-9a-f]*$//')
-          COMMITS=$(echo "$DESCRIBED" | sed 's/.*-\([0-9]*\)-g[0-9a-f]*/\1/')
-          SHA=$(echo "$DESCRIBED" | sed 's/.*-g//')
-          if [ "$COMMITS" = "0" ]; then
-            VERSION="${BASE_TAG}"
+          if DESCRIBED=$(git describe --tags --long 2>/dev/null); then
+            BASE_TAG=$(echo "$DESCRIBED" | sed 's/-[0-9]*-g[0-9a-f]*$//')
+            COMMITS=$(echo "$DESCRIBED" | sed 's/.*-\([0-9]*\)-g[0-9a-f]*$/\1/')
+            SHA=$(echo "$DESCRIBED" | sed 's/.*-g//')
+            if [ "$COMMITS" = "0" ]; then
+              VERSION="${BASE_TAG}"
+            else
+              VERSION="${BASE_TAG}-${COMMITS}-${SHA}-SNAPSHOT"
+            fi
           else
-            VERSION="${BASE_TAG}-${COMMITS}-${SHA}-SNAPSHOT"
+            COMMITS=$(git rev-list --count HEAD)
+            SHA=$(git rev-parse --short HEAD)
+            VERSION="0.0.0-${COMMITS}-${SHA}-SNAPSHOT"
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
