@@ -18,6 +18,31 @@ TRANSPORT=http GRPC_HOST=<host:port> PORT=3000 npx tsx src/index.ts
 
 All MCP requests go to `POST /mcp`. `PORT` defaults to `3000`.
 
+## Docker
+
+### Build
+
+```bash
+docker build -t mcp-medical-price-transparency .
+```
+
+### Run
+
+```bash
+docker run --rm -p 3000:3000 \
+  -e GRPC_HOST=<host:port> \
+  mcp-medical-price-transparency
+```
+
+`TRANSPORT=http` and `PORT=3000` are set by default in the image. Override `PORT` if needed:
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e GRPC_HOST=<host:port> \
+  -e PORT=8080 \
+  mcp-medical-price-transparency
+```
+
 ## Install in Claude Code (stdio)
 
 ```bash
