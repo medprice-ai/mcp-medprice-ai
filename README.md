@@ -23,7 +23,7 @@ All MCP requests go to `POST /mcp`. `PORT` defaults to `3000`.
 ### Build
 
 ```bash
-docker build -t mcp-medical-price-transparency .
+docker build -t mcp-medprice-ai .
 ```
 
 ### Run
@@ -31,7 +31,7 @@ docker build -t mcp-medical-price-transparency .
 ```bash
 docker run --rm -p 3000:3000 \
   -e GRPC_HOST=<host:port> \
-  mcp-medical-price-transparency
+  mcp-medprice-ai
 ```
 
 `TRANSPORT=http` and `PORT=3000` are set by default in the image. Override `PORT` if needed:
@@ -40,7 +40,7 @@ docker run --rm -p 3000:3000 \
 docker run --rm -p 8080:8080 \
   -e GRPC_HOST=<host:port> \
   -e PORT=8080 \
-  mcp-medical-price-transparency
+  mcp-medprice-ai
 ```
 
 ## Install in Claude Code (stdio)

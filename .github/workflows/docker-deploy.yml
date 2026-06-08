@@ -7,7 +7,7 @@ on:
 env:
   GAR_REGION: us-central1
   GAR_REPOSITORY: mcp-medprice-ai
-  GAR_IMAGE_NAME: mcp-medical-price-transparency
+  GAR_IMAGE_NAME: mcp-medprice-ai
 
 jobs:
   build-push:
