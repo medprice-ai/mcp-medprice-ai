@@ -1,22 +1,45 @@
 # mcp-medical-transparency
 
-## Transports
+A hosted MCP server exposing US hospital procedure cost data to AI assistants.
 
-The server supports two transports, selected via the `TRANSPORT` env var.
+- **MCP endpoint**: `https://mcp.medprice.ai/mcp`
+- **gRPC backend**: `api.medprice.ai:443`
 
-### stdio (default — local use with Claude Desktop / Claude Code)
+## Install in Claude Code
+
+```bash
+claude mcp add --transport http mcp-medical-transparency https://mcp.medprice.ai/mcp
+```
+
+To share with everyone in a project, add `--scope project` (writes to `.mcp.json`). To make it available across all your projects, use `--scope user`.
+
+## Development
+
+### Run locally against the production gRPC backend
+
+```bash
+GRPC_HOST=api.medprice.ai:443 npx tsx src/index.ts
+```
+
+### Run locally against a custom gRPC backend
 
 ```bash
 GRPC_HOST=<host:port> npx tsx src/index.ts
 ```
 
-### Streamable HTTP (cloud deployment)
+### Run as HTTP server
 
 ```bash
-TRANSPORT=http GRPC_HOST=<host:port> PORT=3000 npx tsx src/index.ts
+TRANSPORT=http GRPC_HOST=api.medprice.ai:443 npx tsx src/index.ts
 ```
 
 All MCP requests go to `POST /mcp`. `PORT` defaults to `3000`.
+
+### Test gRPC connectivity
+
+```bash
+GRPC_HOST=api.medprice.ai:443 npx tsx src/test.ts
+```
 
 ## Docker
 
@@ -30,7 +53,7 @@ docker build -t mcp-medprice-ai .
 
 ```bash
 docker run --rm -p 3000:3000 \
-  -e GRPC_HOST=<host:port> \
+  -e GRPC_HOST=api.medprice.ai:443 \
   mcp-medprice-ai
 ```
 
@@ -38,32 +61,7 @@ docker run --rm -p 3000:3000 \
 
 ```bash
 docker run --rm -p 8080:8080 \
-  -e GRPC_HOST=<host:port> \
+  -e GRPC_HOST=api.medprice.ai:443 \
   -e PORT=8080 \
   mcp-medprice-ai
-```
-
-## Install in Claude Code (stdio)
-
-```bash
-claude mcp add --env GRPC_HOST=<host:port> --transport stdio mcp-medical-transparency \
-  -- npx tsx /path/to/mcp-medical-transparency/src/index.ts
-```
-
-Replace `<host:port>` with your gRPC backend address and `/path/to/mcp-medical-transparency` with the absolute path to this repo.
-
-To share the server with everyone in a project, add `--scope project` (writes to `.mcp.json`). To make it available across all your projects, use `--scope user`.
-
-## Install in Claude Code (HTTP)
-
-If you have deployed the server (e.g. Cloud Run), add it as an HTTP MCP server:
-
-```bash
-claude mcp add --transport http mcp-medical-transparency https://<your-deployed-url>/mcp
-```
-
-## Test gRPC connectivity
-
-```
-GRPC_HOST=... npx tsx src/test.ts
 ```
