@@ -5,8 +5,9 @@ on:
     branches: [master, "2026-06-07-docker-deploy"]
 
 env:
-  REGION: us-central1
-  IMAGE: mcp-medical-price-transparency
+  GAR_REGION: us-central1
+  GAR_REPOSITORY: mcp-medprice-ai
+  GAR_IMAGE_NAME: mcp-medical-price-transparency
 
 jobs:
   build-push:
@@ -40,22 +41,21 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - id: auth
+      - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
-          token_format: access_token
+          workload_identity_provider: projects/${{ secrets.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-artifact-publisher@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
 
-      - uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGION }}-docker.pkg.dev
-          username: oauth2accesstoken
-          password: ${{ steps.auth.outputs.auth_token }}
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Login to Artifact Registry
+        run: gcloud auth configure-docker "${GAR_REGION}-docker.pkg.dev" --quiet
 
       - name: Build and push
         run: |
-          IMAGE_URI="${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPOSITORY }}/${{ env.IMAGE }}"
+          IMAGE_URI="${GAR_REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${GAR_REPOSITORY}/${GAR_IMAGE_NAME}"
           docker build \
             -t "${IMAGE_URI}:${{ steps.version.outputs.version }}" \
             -t "${IMAGE_URI}:latest" \
