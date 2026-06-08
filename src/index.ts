@@ -138,7 +138,7 @@ function createMcpServer(): Server {
           request.params.arguments
         )
 
-      log("INFO", "grpc request", { code_type: args.code_type, code: args.code })
+      log("INFO", `grpc request code_type=${args.code_type} code=${args.code}`, { code_type: args.code_type, code: args.code })
       const grpcStart = Date.now()
 
       let response: unknown
@@ -155,11 +155,11 @@ function createMcpServer(): Server {
           }
         )
       } catch (err) {
-        log("ERROR", "grpc request failed", { code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart, error: String(err) })
+        log("ERROR", `grpc request failed code_type=${args.code_type} code=${args.code} duration_ms=${Date.now() - grpcStart}`, { code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart, error: String(err) })
         throw err
       }
 
-      log("INFO", "grpc response", { code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
+      log("INFO", `grpc response code_type=${args.code_type} code=${args.code} duration_ms=${Date.now() - grpcStart}`, { code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
 
       return {
         content: [
