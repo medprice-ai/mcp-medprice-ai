@@ -1,0 +1,64 @@
+name: Build and Push to Artifact Registry
+
+on:
+  push:
+    branches: [master, "2026-06-07-docker-deploy"]
+
+env:
+  GAR_REGION: us-central1
+  GAR_REPOSITORY: mcp-medprice-ai
+  GAR_IMAGE_NAME: mcp-medprice-ai
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute version tag
+        id: version
+        run: |
+          if DESCRIBED=$(git describe --tags --long 2>/dev/null); then
+            BASE_TAG=$(echo "$DESCRIBED" | sed 's/-[0-9]*-g[0-9a-f]*$//')
+            COMMITS=$(echo "$DESCRIBED" | sed 's/.*-\([0-9]*\)-g[0-9a-f]*$/\1/')
+            SHA=$(echo "$DESCRIBED" | sed 's/.*-g//')
+            if [ "$COMMITS" = "0" ]; then
+              VERSION="${BASE_TAG}"
+            else
+              VERSION="${BASE_TAG}-${COMMITS}-${SHA}-SNAPSHOT"
+            fi
+          else
+            COMMITS=$(git rev-list --count HEAD)
+            SHA=$(git rev-parse --short HEAD)
+            VERSION="0.0.0-${COMMITS}-${SHA}-SNAPSHOT"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/${{ secrets.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-artifact-publisher@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Login to Artifact Registry
+        run: gcloud auth configure-docker "${GAR_REGION}-docker.pkg.dev" --quiet
+
+      - name: Build and push
+        run: |
+          IMAGE_URI="${GAR_REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${GAR_REPOSITORY}/${GAR_IMAGE_NAME}"
+          docker build \
+            -t "${IMAGE_URI}:${{ steps.version.outputs.version }}" \
+            -t "${IMAGE_URI}:latest" \
+            .
+          docker push "${IMAGE_URI}:${{ steps.version.outputs.version }}"
+          docker push "${IMAGE_URI}:latest"
