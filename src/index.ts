@@ -168,7 +168,9 @@ function createMcpServer(): Server {
             text:
              JSON.stringify(
                response,
-               null,
+               // proto3 `optional` fields are backed by synthetic oneofs; with
+               // oneofs:true the decoder leaks "_fieldName" indicator keys — strip them
+               (key, value) => key.startsWith("_") ? undefined : value,
                2
              )
           }
