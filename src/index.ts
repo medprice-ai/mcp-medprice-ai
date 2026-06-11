@@ -104,6 +104,9 @@ function createMcpServer(): Server {
               },
               code: {
                 type: "string"
+              },
+              methodology: {
+                type: "string"
               }
             },
             required: [
@@ -133,7 +136,9 @@ function createMcpServer(): Server {
           code_type:
             z.string(),
           code:
-            z.string()
+            z.string(),
+          methodology:
+            z.string().optional()
         }).parse(
           request.params.arguments
         )
@@ -146,7 +151,7 @@ function createMcpServer(): Server {
         response = await new Promise(
           (resolve, reject) => {
             client.GetHospitalProcedureCost(
-              { code_type: args.code_type, code: args.code, methodology: "" },
+              { code_type: args.code_type, code: args.code, methodology: args.methodology ?? "" },
               (err: any, resp: any) => {
                 if (err) reject(err)
                 else resolve(resp)
