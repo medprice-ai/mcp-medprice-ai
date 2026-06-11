@@ -27,7 +27,7 @@ message ProcedureCostStatsMessage {
   string avg = 5;
   string median = 6;
   string std_dev = 7;
-  int64 procedure_count = 8;
+  optional int64 procedure_count = 8;
   int64 payer_count_median = 9;
   string payer_count_avg = 10;
   int64 payer_count_min = 11;
