@@ -2,7 +2,7 @@ name: Build and Push to Artifact Registry
 
 on:
   push:
-    branches: [master, "2026-06-07-docker-deploy"]
+    branches: [master]
 
 env:
   GAR_REGION: us-central1
