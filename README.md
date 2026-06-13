@@ -1,4 +1,4 @@
-# mcp-medical-transparency
+# mcp-medprice-ai
 
 A hosted MCP server exposing US hospital procedure cost data to AI assistants.
 
@@ -8,7 +8,7 @@ A hosted MCP server exposing US hospital procedure cost data to AI assistants.
 ## Install in Claude Code
 
 ```bash
-claude mcp add --transport http mcp-medical-transparency https://mcp.medprice.ai/mcp
+claude mcp add --transport http mcp-medprice-ai https://mcp.medprice.ai/mcp
 ```
 
 To share with everyone in a project, add `--scope project` (writes to `.mcp.json`). To make it available across all your projects, use `--scope user`.
