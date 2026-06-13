@@ -106,7 +106,15 @@ function createMcpServer(): Server {
                 type: "string"
               },
               methodology: {
-                type: "string"
+                type: "string",
+                enum: [
+                  "case rate",
+                  "fee schedule",
+                  "other",
+                  "percent of total billed charges",
+                  "per diem"
+                ],
+                description: "Pricing methodology. Omit to aggregate across all methodologies."
               }
             },
             required: [
