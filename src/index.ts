@@ -75,7 +75,7 @@ function createMcpServer(): Server {
     new Server(
       {
         name:
-          "medical-price-mcp",
+          "mcp-medprice-ai",
         version:
           "0.0.1"
       },
