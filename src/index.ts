@@ -100,7 +100,8 @@ function createMcpServer(): Server {
             type: "object",
             properties: {
               code_type: {
-                type: "string"
+                type: "string",
+                description: "Code system the procedure/billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC. Hospitals may also support additional proprietary code types not listed here."
               },
               code: {
                 type: "string"
