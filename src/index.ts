@@ -81,7 +81,37 @@ function createMcpServer(): Server {
       },
       {
         capabilities: {
-          tools: {}
+          tools: ({
+            get_hospital_procedure_cost: {
+              name: "get_hospital_procedure_cost",
+              title: "Get hospital procedure cost",
+              description: "Lookup hospital procedure cost",
+              readOnlyHint: true,
+              destructiveHint: false,
+              inputSchema: {
+                type: "object",
+                properties: {
+                  code_type: {
+                    type: "string",
+                    description: "Code system the procedure/billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC. Hospitals may also support additional proprietary code types not listed here."
+                  },
+                  code: { type: "string" },
+                  methodology: {
+                    type: "string",
+                    enum: [
+                      "case rate",
+                      "fee schedule",
+                      "other",
+                      "percent of total billed charges",
+                      "per diem"
+                    ],
+                    description: "Pricing methodology. Omit to aggregate across all methodologies."
+                  }
+                },
+                required: ["code_type", "code"]
+              }
+            }
+          } as any)
         }
       }
     )
@@ -94,8 +124,12 @@ function createMcpServer(): Server {
         {
           name:
             "get_hospital_procedure_cost",
+          title:
+            "Get hospital procedure cost",
           description:
             "Lookup hospital procedure cost",
+          readOnlyHint: true,
+          destructiveHint: false,
           inputSchema: {
             type: "object",
             properties: {
