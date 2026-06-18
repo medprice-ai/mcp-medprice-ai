@@ -43,7 +43,7 @@ This is a **TypeScript MCP (Model Context Protocol) server** that exposes hospit
    - default — connects via `StdioServerTransport` over stdin/stdout
 
 **Proto services** (backend is Scala/ScalaPB):
-- `HospitalProcedureCostService.GetHospitalProcedureCost` — returns cost stats (min/max/avg/median/std_dev, procedure count, payer count) for two hospitals: MCA and UIHC
+- `HospitalProcedureCostService.GetHospitalProcedureCost` — returns cost stats (min/max/avg/median/std_dev) for two hospitals: MCA and UIHC
 - `PopularCodesService.GetTopCodes` / `GetTopCodesByHospital` — top procedure codes, optionally enriched with cost stats
 
 `popular_codes.proto` defines a `PopularCodesService` that is **not yet wired into the MCP server**.
