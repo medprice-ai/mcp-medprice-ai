@@ -13,6 +13,61 @@ claude mcp add --transport http mcp-medprice-ai https://mcp.medprice.ai/mcp
 
 To share with everyone in a project, add `--scope project` (writes to `.mcp.json`). To make it available across all your projects, use `--scope user`.
 
+## Usage
+
+The server exposes one tool, `get_hospital_procedure_cost`, which looks up cost stats for a billing code across hospitals. Once installed, you can just ask your assistant something like:
+
+> What's the fee schedule cost of MS-DRG 652 at MedPrice AI's hospitals?
+
+which calls the tool with:
+
+```json
+{
+  "code_type": "MS-DRG",
+  "code": "652",
+  "methodology": "fee schedule"
+}
+```
+
+and returns:
+
+```json
+{
+  "mca": {
+    "hospital": "MCA",
+    "found": true,
+    "cost": {
+      "code_type": "MS-DRG",
+      "code": "652",
+      "min": "26851.11",
+      "max": "190885.00",
+      "avg": "34387.70",
+      "median": "28084.07",
+      "std_dev": "13735.94"
+    }
+  },
+  "uihc": {
+    "hospital": "UIHC",
+    "found": true,
+    "cost": {
+      "code_type": "MS-DRG",
+      "code": "652",
+      "min": "22436.13",
+      "max": "170932.00",
+      "avg": "22981.01",
+      "median": "22884.85",
+      "std_dev": "462.26"
+    }
+  }
+}
+```
+
+### Tool reference
+
+- **`code_type`** (required) — code system, e.g. `APR-DRG`, `CDM`, `CPT`, `HCPCS`, `MS-DRG`, `RC`. Hospitals may also support additional proprietary code types.
+- **`code`** (required) — the billing/procedure code.
+- **`methodology`** (optional) — one of `case rate`, `fee schedule`, `other`, `percent of total billed charges`, `per diem`. Omit to aggregate across all methodologies.
+
 ## Development
 
 ### Run locally against the production gRPC backend
