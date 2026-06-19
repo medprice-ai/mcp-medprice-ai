@@ -3,6 +3,7 @@ name: Build and Push to Artifact Registry
 on:
   push:
     branches: [master]
+    tags: ["*"]
 
 env:
   GAR_REGION: us-central1
