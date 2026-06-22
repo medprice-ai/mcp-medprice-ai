@@ -86,8 +86,11 @@ function createMcpServer(): Server {
               name: "get_hospital_procedure_cost",
               title: "Get hospital procedure cost",
               description: "Lookup hospital procedure cost",
-              readOnlyHint: true,
-              destructiveHint: false,
+              annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                openWorldHint: false
+              },
               inputSchema: {
                 type: "object",
                 properties: {
@@ -128,8 +131,11 @@ function createMcpServer(): Server {
             "Get hospital procedure cost",
           description:
             "Lookup hospital procedure cost",
-          readOnlyHint: true,
-          destructiveHint: false,
+          annotations: {
+            readOnlyHint: true,
+            destructiveHint: false,
+            openWorldHint: false
+          },
           inputSchema: {
             type: "object",
             properties: {
