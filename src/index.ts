@@ -237,6 +237,14 @@ async function main() {
 
     const httpServer = http.createServer(async (req, res) => {
       if (req.url === "/mcp") {
+        if (req.method !== "POST") {
+          // Stateless mode has no sessions, so it can't support the GET/SSE
+          // stream or DELETE session-termination the spec otherwise allows.
+          res.writeHead(405, { "Content-Type": "application/json", "Allow": "POST" })
+          res.end(JSON.stringify({ error: "Method not allowed: this server is stateless and only supports POST" }))
+          return
+        }
+
         const chunks: Buffer[] = []
         req.on("data", (chunk: Buffer) => chunks.push(chunk))
         req.on("end", async () => {
