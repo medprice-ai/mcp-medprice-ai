@@ -4,7 +4,7 @@ import * as protoLoader from "@grpc/proto-loader"
 
 const packageDefinition =
   protoLoader.loadSync(
-    "proto/hospital_procedure_cost.proto",
+    "proto/hospital_code_cost.proto",
     {
       keepCase: true,
 
@@ -25,7 +25,7 @@ const proto =
 
 const service =
   proto.org.medical.price.transparency.api
-    .HospitalProcedureCostService
+    .HospitalCodeCostService
 
 const grpcCredentials =
   process.env.GRPC_INSECURE === "true"
@@ -41,7 +41,7 @@ const client =
 
   )
 
-client.GetHospitalProcedureCost(
+client.GetHospitalCodeCost(
 
   {
 

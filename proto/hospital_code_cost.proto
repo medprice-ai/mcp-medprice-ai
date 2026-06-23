@@ -5,12 +5,12 @@ import "scalapb/scalapb.proto";
 
 option java_multiple_files = true;
 option java_package = "org.medical.price.transparency.api";
-option java_outer_classname = "HospitalProcedureCostProto";
+option java_outer_classname = "HospitalCodeCostProto";
 option (scalapb.options) = {
   scala3_sources: true
 };
 
-message HospitalProcedureCostRequest {
+message HospitalCodeCostRequest {
   // e.g. "MS-DRG"
   string code_type = 1;
   // e.g. "652"
@@ -19,7 +19,7 @@ message HospitalProcedureCostRequest {
   string methodology = 3;
 }
 
-message ProcedureCostStatsMessage {
+message CodeCostStatsMessage {
   string code_type = 1;
   string code = 2;
   string min = 3;
@@ -39,15 +39,16 @@ message HospitalDescription {
 message HospitalCostResult {
   string hospital = 1;
   bool found = 2;
-  ProcedureCostStatsMessage cost = 3;
+  CodeCostStatsMessage cost = 3;
   HospitalDescription description = 4;
 }
 
-message HospitalProcedureCostResponse {
+message HospitalCodeCostResponse {
   HospitalCostResult mca = 1;
   HospitalCostResult uihc = 2;
 }
 
-service HospitalProcedureCostService {
-  rpc GetHospitalProcedureCost (HospitalProcedureCostRequest) returns (HospitalProcedureCostResponse);
+service HospitalCodeCostService {
+  rpc GetHospitalCodeCost (HospitalCodeCostRequest) returns (HospitalCodeCostResponse);
 }
+
