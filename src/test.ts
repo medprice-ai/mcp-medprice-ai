@@ -27,12 +27,17 @@ const service =
   proto.org.medical.price.transparency.api
     .HospitalProcedureCostService
 
+const grpcCredentials =
+  process.env.GRPC_INSECURE === "true"
+    ? grpc.credentials.createInsecure()
+    : grpc.credentials.createSsl()
+
 const client =
   new service(
 
     process.env.GRPC_HOST,
 
-    grpc.credentials.createSsl()
+    grpcCredentials
 
   )
 
