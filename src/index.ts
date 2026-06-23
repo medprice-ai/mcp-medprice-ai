@@ -26,6 +26,13 @@ if (!grpcHost) {
   process.exit(1)
 }
 
+// Defaults to TLS so production (no env override) stays secure.
+// Set GRPC_INSECURE=true for local dev against a plaintext gRPC server.
+const grpcCredentials =
+  process.env.GRPC_INSECURE === "true"
+    ? grpc.credentials.createInsecure()
+    : grpc.credentials.createSsl()
+
 const logStream = process.env.TRANSPORT === "http" ? process.stdout : process.stderr
 
 function log(level: "INFO" | "WARN" | "ERROR", message: string, extra?: Record<string, unknown>) {
@@ -60,10 +67,13 @@ try {
   client =
     new Service(
       grpcHost,
-      grpc.credentials.createSsl()
+      grpcCredentials
     )
 
-  log("INFO", "proto loaded, gRPC client ready", { grpc_host: grpcHost })
+  log("INFO", "proto loaded, gRPC client ready", {
+    grpc_host: grpcHost,
+    grpc_tls: process.env.GRPC_INSECURE !== "true"
+  })
 } catch (err) {
   log("ERROR", "FATAL: failed to initialize gRPC client", { error: String(err) })
   process.exit(1)
