@@ -1,6 +1,6 @@
 # mcp-medprice-ai
 
-A hosted MCP server exposing US hospital procedure cost data to AI assistants.
+A hosted MCP server exposing US hospital chargemaster cost data to AI assistants.
 
 - **MCP endpoint**: `https://mcp.medprice.ai/mcp`
 - **gRPC backend**: `api.medprice.ai:443`
@@ -15,7 +15,7 @@ To share with everyone in a project, add `--scope project` (writes to `.mcp.json
 
 ## Usage
 
-The server exposes one tool, `get_hospital_procedure_cost`, which looks up cost stats for a billing code across hospitals. Once installed, you can just ask your assistant something like:
+The server exposes one tool, `get_hospital_chargemaster_cost`, which looks up cost stats for a billing code across hospitals. Once installed, you can just ask your assistant something like:
 
 > What's the fee schedule cost of MS-DRG 652 at MedPrice AI's hospitals?
 
@@ -65,7 +65,7 @@ and returns:
 ### Tool reference
 
 - **`code_type`** (required) — code system, e.g. `APR-DRG`, `CDM`, `CPT`, `HCPCS`, `MS-DRG`, `RC`. Hospitals may also support additional proprietary code types.
-- **`code`** (required) — the billing/procedure code.
+- **`code`** (required) — the billing/chargemaster code.
 - **`methodology`** (optional) — one of `case rate`, `fee schedule`, `other`, `percent of total billed charges`, `per diem`. Omit to aggregate across all methodologies.
 
 ## Development
