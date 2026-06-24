@@ -45,7 +45,7 @@ let client: any
 try {
   packageDefinition =
     protoLoader.loadSync(
-      path.resolve(__dirname, "../proto/hospital_procedure_cost.proto"),
+      path.resolve(__dirname, "../proto/hospital_code_cost.proto"),
       {
         keepCase: true,
         longs: String,
@@ -61,8 +61,8 @@ try {
     ) as any
 
   const Service =
-    proto.org.medical.price.transparency.api
-      .HospitalProcedureCostService
+    proto.ai.medprice.api
+      .HospitalCodeCostService
 
   client =
     new Service(
@@ -209,7 +209,7 @@ function createMcpServer(): Server {
       try {
         response = await new Promise(
           (resolve, reject) => {
-            client.GetHospitalProcedureCost(
+            client.GetHospitalCodeCost(
               { code_type: args.code_type, code: args.code, methodology: args.methodology ?? "" },
               (err: any, resp: any) => {
                 if (err) reject(err)
