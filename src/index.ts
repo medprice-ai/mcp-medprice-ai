@@ -92,10 +92,10 @@ function createMcpServer(): Server {
       {
         capabilities: {
           tools: ({
-            get_hospital_procedure_cost: {
-              name: "get_hospital_procedure_cost",
-              title: "Get hospital procedure cost",
-              description: "Lookup hospital procedure cost",
+            get_hospital_chargemaster_cost: {
+              name: "get_hospital_chargemaster_cost",
+              title: "Get hospital chargemaster cost",
+              description: "Lookup hospital chargemaster cost",
               annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,
@@ -106,7 +106,7 @@ function createMcpServer(): Server {
                 properties: {
                   code_type: {
                     type: "string",
-                    description: "Code system the procedure/billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC. Hospitals may also support additional proprietary code types not listed here."
+                    description: "Code system the chargemaster/billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC. Hospitals may also support additional proprietary code types not listed here."
                   },
                   code: { type: "string" },
                   methodology: {
@@ -136,11 +136,11 @@ function createMcpServer(): Server {
       tools: [
         {
           name:
-            "get_hospital_procedure_cost",
+            "get_hospital_chargemaster_cost",
           title:
-            "Get hospital procedure cost",
+            "Get hospital chargemaster cost",
           description:
-            "Lookup hospital procedure cost",
+            "Lookup hospital chargemaster cost",
           annotations: {
             readOnlyHint: true,
             destructiveHint: false,
@@ -151,7 +151,7 @@ function createMcpServer(): Server {
             properties: {
               code_type: {
                 type: "string",
-                description: "Code system the procedure/billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC. Hospitals may also support additional proprietary code types not listed here."
+                description: "Code system the chargemaster/billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC. Hospitals may also support additional proprietary code types not listed here."
               },
               code: {
                 type: "string"
@@ -183,7 +183,7 @@ function createMcpServer(): Server {
     async (request) => {
       if (
         request.params.name !==
-        "get_hospital_procedure_cost"
+        "get_hospital_chargemaster_cost"
       ) {
         throw new Error(
           "unknown tool"

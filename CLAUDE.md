@@ -35,14 +35,14 @@ There are no npm scripts defined; run `tsx` directly.
 
 ## Architecture
 
-This is a **TypeScript MCP (Model Context Protocol) server** that exposes hospital medical procedure cost data to AI assistants by proxying a gRPC backend.
+This is a **TypeScript MCP (Model Context Protocol) server** that exposes hospital chargemaster cost data to AI assistants by proxying a gRPC backend.
 
 **Data flow**: MCP client (e.g. Claude) → stdio → MCP server (`src/index.ts`) → gRPC over TLS (default) → backend (`GRPC_HOST`)
 
 **`src/index.ts`** is the sole production entry point. It:
 1. Loads `proto/hospital_code_cost.proto` at startup via `@grpc/proto-loader`
 2. Creates a gRPC client to `GRPC_HOST` (SSL by default, no auth config — uses system certs; set `GRPC_INSECURE=true` to use plaintext credentials instead, for local dev against a non-TLS server)
-3. Registers one MCP tool `get_hospital_procedure_cost` with `code_type` + `code` inputs
+3. Registers one MCP tool `get_hospital_chargemaster_cost` with `code_type` + `code` inputs
 4. Selects transport based on `TRANSPORT` env var:
    - `TRANSPORT=http` — starts an HTTP server on `PORT` (default `3000`), handles all requests at `POST /mcp` via `StreamableHTTPServerTransport` (stateless, suitable for Cloud Run)
    - default — connects via `StdioServerTransport` over stdin/stdout
