@@ -61,7 +61,7 @@ try {
     ) as any
 
   const Service =
-    proto.org.medical.price.transparency.api
+    proto.ai.medprice.api
       .HospitalCodeCostService
 
   client =

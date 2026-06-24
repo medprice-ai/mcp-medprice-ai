@@ -1,10 +1,10 @@
 syntax = "proto3";
-package org.medical.price.transparency.api;
+package ai.medprice.api;
 
 import "scalapb/scalapb.proto";
 
 option java_multiple_files = true;
-option java_package = "org.medical.price.transparency.api";
+option java_package = "ai.medprice.api";
 option java_outer_classname = "HospitalCodeCostProto";
 option (scalapb.options) = {
   scala3_sources: true

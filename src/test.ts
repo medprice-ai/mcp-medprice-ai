@@ -24,7 +24,7 @@ const proto =
   ) as any
 
 const service =
-  proto.org.medical.price.transparency.api
+  proto.ai.medprice.api
     .HospitalCodeCostService
 
 const grpcCredentials =
