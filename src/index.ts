@@ -39,38 +39,43 @@ function log(level: "INFO" | "WARN" | "ERROR", message: string, extra?: Record<s
   logStream.write(JSON.stringify({ severity: level, message, ...extra }) + "\n")
 }
 
-let packageDefinition: protoLoader.PackageDefinition
+const protoLoaderOptions: protoLoader.Options = {
+  keepCase: true,
+  longs: String,
+  enums: String,
+  defaults: true,
+  oneofs: true
+}
+
 let client: any
+let registryClient: any
 
 try {
-  packageDefinition =
+  const costPackage = grpc.loadPackageDefinition(
     protoLoader.loadSync(
       path.resolve(__dirname, "../proto/hospital_code_cost.proto"),
-      {
-        keepCase: true,
-        longs: String,
-        enums: String,
-        defaults: true,
-        oneofs: true
-      }
+      protoLoaderOptions
     )
+  ) as any
 
-  const proto =
-    grpc.loadPackageDefinition(
-      packageDefinition
-    ) as any
+  client = new costPackage.ai.medprice.api.HospitalCodeCostService(
+    grpcHost,
+    grpcCredentials
+  )
 
-  const Service =
-    proto.ai.medprice.api
-      .HospitalCodeCostService
-
-  client =
-    new Service(
-      grpcHost,
-      grpcCredentials
+  const registryPackage = grpc.loadPackageDefinition(
+    protoLoader.loadSync(
+      path.resolve(__dirname, "../proto/hospital_registry.proto"),
+      protoLoaderOptions
     )
+  ) as any
 
-  log("INFO", "proto loaded, gRPC client ready", {
+  registryClient = new registryPackage.ai.medprice.api.HospitalRegistryService(
+    grpcHost,
+    grpcCredentials
+  )
+
+  log("INFO", "proto loaded, gRPC clients ready", {
     grpc_host: grpcHost,
     grpc_tls: process.env.GRPC_INSECURE !== "true"
   })
@@ -123,6 +128,29 @@ function createMcpServer(): Server {
                 },
                 required: ["code_type", "code"]
               }
+            },
+            list_hospitals: {
+              name: "list_hospitals",
+              title: "List supported hospitals",
+              description: "Returns the hospitals supported by the medprice.ai API, with their EIN, name, and location. Supports pagination.",
+              annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                openWorldHint: false
+              },
+              inputSchema: {
+                type: "object",
+                properties: {
+                  page_size: {
+                    type: "integer",
+                    description: "Maximum number of hospitals to return. Defaults to 20, capped at 100."
+                  },
+                  page_token: {
+                    type: "string",
+                    description: "Opaque token from a previous list_hospitals response. Omit for the first page."
+                  }
+                }
+              }
             }
           } as any)
         }
@@ -135,12 +163,9 @@ function createMcpServer(): Server {
     async () => ({
       tools: [
         {
-          name:
-            "get_hospital_chargemaster_cost",
-          title:
-            "Get hospital chargemaster cost",
-          description:
-            "Lookup hospital chargemaster cost",
+          name: "get_hospital_chargemaster_cost",
+          title: "Get hospital chargemaster cost",
+          description: "Lookup hospital chargemaster cost",
           annotations: {
             readOnlyHint: true,
             destructiveHint: false,
@@ -173,6 +198,29 @@ function createMcpServer(): Server {
               "code"
             ]
           }
+        },
+        {
+          name: "list_hospitals",
+          title: "List supported hospitals",
+          description: "Returns the hospitals supported by the medprice.ai API, with their EIN, name, and location. Supports pagination.",
+          annotations: {
+            readOnlyHint: true,
+            destructiveHint: false,
+            openWorldHint: false
+          },
+          inputSchema: {
+            type: "object",
+            properties: {
+              page_size: {
+                type: "integer",
+                description: "Maximum number of hospitals to return. Defaults to 20, capped at 100."
+              },
+              page_token: {
+                type: "string",
+                description: "Opaque token from a previous list_hospitals response. Omit for the first page."
+              }
+            }
+          }
         }
       ]
     })
@@ -181,34 +229,19 @@ function createMcpServer(): Server {
   server.setRequestHandler(
     CallToolRequestSchema,
     async (request) => {
-      if (
-        request.params.name !==
-        "get_hospital_chargemaster_cost"
-      ) {
-        throw new Error(
-          "unknown tool"
-        )
-      }
+      if (request.params.name === "get_hospital_chargemaster_cost") {
+        const args = z.object({
+          code_type: z.string(),
+          code: z.string(),
+          methodology: z.string().optional()
+        }).parse(request.params.arguments)
 
-      const args =
-        z.object({
-          code_type:
-            z.string(),
-          code:
-            z.string(),
-          methodology:
-            z.string().optional()
-        }).parse(
-          request.params.arguments
-        )
+        log("INFO", "grpc request", { tool: "get_hospital_chargemaster_cost", code_type: args.code_type, code: args.code })
+        const grpcStart = Date.now()
 
-      log("INFO", "grpc request", { code_type: args.code_type, code: args.code })
-      const grpcStart = Date.now()
-
-      let response: unknown
-      try {
-        response = await new Promise(
-          (resolve, reject) => {
+        let response: unknown
+        try {
+          response = await new Promise((resolve, reject) => {
             client.GetHospitalCodeCost(
               { code_type: args.code_type, code: args.code, methodology: args.methodology ?? "" },
               (err: any, resp: any) => {
@@ -216,30 +249,64 @@ function createMcpServer(): Server {
                 else resolve(resp)
               }
             )
-          }
-        )
-      } catch (err) {
-        log("ERROR", "grpc request failed", { code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart, error: String(err) })
-        throw err
-      }
+          })
+        } catch (err) {
+          log("ERROR", "grpc request failed", { tool: "get_hospital_chargemaster_cost", code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart, error: String(err) })
+          throw err
+        }
 
-      log("INFO", "grpc response", { code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
+        log("INFO", "grpc response", { tool: "get_hospital_chargemaster_cost", code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
 
-      return {
-        content: [
-          {
+        return {
+          content: [{
             type: "text",
-            text:
-             JSON.stringify(
-               response,
-               // proto3 `optional` fields are backed by synthetic oneofs; with
-               // oneofs:true the decoder leaks "_fieldName" indicator keys — strip them
-               (key, value) => key.startsWith("_") ? undefined : value,
-               2
-             )
-          }
-        ]
+            text: JSON.stringify(
+              response,
+              // proto3 `optional` fields are backed by synthetic oneofs; with
+              // oneofs:true the decoder leaks "_fieldName" indicator keys — strip them
+              (key, value) => key.startsWith("_") ? undefined : value,
+              2
+            )
+          }]
+        }
       }
+
+      if (request.params.name === "list_hospitals") {
+        const args = z.object({
+          page_size: z.number().int().optional(),
+          page_token: z.string().optional()
+        }).parse(request.params.arguments)
+
+        log("INFO", "grpc request", { tool: "list_hospitals" })
+        const grpcStart = Date.now()
+
+        let response: unknown
+        try {
+          response = await new Promise((resolve, reject) => {
+            registryClient.ListHospitals(
+              { page_size: args.page_size ?? 0, page_token: args.page_token ?? "" },
+              (err: any, resp: any) => {
+                if (err) reject(err)
+                else resolve(resp)
+              }
+            )
+          })
+        } catch (err) {
+          log("ERROR", "grpc request failed", { tool: "list_hospitals", duration_ms: Date.now() - grpcStart, error: String(err) })
+          throw err
+        }
+
+        log("INFO", "grpc response", { tool: "list_hospitals", duration_ms: Date.now() - grpcStart })
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify(response, (key, value) => key.startsWith("_") ? undefined : value, 2)
+          }]
+        }
+      }
+
+      throw new Error("unknown tool")
     })
 
   return server
