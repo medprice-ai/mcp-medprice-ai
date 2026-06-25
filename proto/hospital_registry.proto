@@ -1,0 +1,35 @@
+syntax = "proto3";
+package ai.medprice.api;
+
+import "scalapb/scalapb.proto";
+
+option java_multiple_files = true;
+option java_package = "ai.medprice.api";
+option java_outer_classname = "HospitalRegistryProto";
+option (scalapb.options) = {
+  scala3_sources: true
+};
+
+message HospitalRecord {
+  // EIN — the stable hospital identifier (e.g. "46-4027347")
+  string hospital_id = 1;
+  string hospital_name = 2;
+  string location = 3;
+}
+
+message ListHospitalsRequest {
+  // Maximum number of hospitals to return. Defaults to 20, capped at 100.
+  int32 page_size = 1;
+  // Opaque token returned by a previous ListHospitals call. Empty for the first page.
+  string page_token = 2;
+}
+
+message ListHospitalsResponse {
+  repeated HospitalRecord hospitals = 1;
+  // Empty when there are no more results.
+  string next_page_token = 2;
+}
+
+service HospitalRegistryService {
+  rpc ListHospitals (ListHospitalsRequest) returns (ListHospitalsResponse);
+}
