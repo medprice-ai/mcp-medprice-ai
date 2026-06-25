@@ -38,7 +38,9 @@ message HospitalDescription {
 
 message HospitalCostResult {
   string hospital = 1;
-  bool found = 2;
+  // proto3 "optional" gives this scalar field explicit presence, so JSON
+  // marshaling (e.g. grpcurl) always emits it, even when false.
+  optional bool found = 2;
   CodeCostStatsMessage cost = 3;
   HospitalDescription description = 4;
 }
