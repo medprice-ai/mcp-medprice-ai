@@ -132,7 +132,7 @@ function createMcpServer(): Server {
             list_hospitals: {
               name: "list_hospitals",
               title: "List supported hospitals",
-              description: "Returns the hospitals supported by the medprice.ai API, with their EIN, name, and location. Supports pagination.",
+              description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque DB key), EIN, name, and locations. Supports pagination.",
               annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,
@@ -202,7 +202,7 @@ function createMcpServer(): Server {
         {
           name: "list_hospitals",
           title: "List supported hospitals",
-          description: "Returns the hospitals supported by the medprice.ai API, with their EIN, name, and location. Supports pagination.",
+          description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque DB key), EIN, name, and locations. Supports pagination.",
           annotations: {
             readOnlyHint: true,
             destructiveHint: false,
