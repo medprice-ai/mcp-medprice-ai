@@ -11,10 +11,12 @@ option (scalapb.options) = {
 };
 
 message HospitalRecord {
-  // EIN — the stable hospital identifier (e.g. "46-4027347")
+  // Opaque handle backed by hospital_registry.id (DB primary key).
   string hospital_id = 1;
-  string hospital_name = 2;
-  repeated string locations = 3;
+  // EIN — groups filings from the same legal entity (e.g. "46-4027347").
+  string ein = 2;
+  string hospital_name = 3;
+  repeated string locations = 4;
 }
 
 message ListHospitalsRequest {
