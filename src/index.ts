@@ -109,6 +109,10 @@ function createMcpServer(): Server {
               inputSchema: {
                 type: "object",
                 properties: {
+                  hospital_id: {
+                    type: "string",
+                    description: "Opaque hospital identifier from list_hospitals."
+                  },
                   code_type: {
                     type: "string",
                     description: "Code system the chargemaster/billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC. Hospitals may also support additional proprietary code types not listed here."
@@ -126,7 +130,7 @@ function createMcpServer(): Server {
                     description: "Pricing methodology. Omit to aggregate across all methodologies."
                   }
                 },
-                required: ["code_type", "code"]
+                required: ["hospital_id", "code_type", "code"]
               }
             },
             list_hospitals: {
@@ -174,6 +178,10 @@ function createMcpServer(): Server {
           inputSchema: {
             type: "object",
             properties: {
+              hospital_id: {
+                type: "string",
+                description: "Opaque hospital identifier from list_hospitals."
+              },
               code_type: {
                 type: "string",
                 description: "Code system the chargemaster/billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC. Hospitals may also support additional proprietary code types not listed here."
@@ -194,6 +202,7 @@ function createMcpServer(): Server {
               }
             },
             required: [
+              "hospital_id",
               "code_type",
               "code"
             ]
@@ -231,19 +240,20 @@ function createMcpServer(): Server {
     async (request) => {
       if (request.params.name === "get_hospital_chargemaster_cost") {
         const args = z.object({
+          hospital_id: z.string(),
           code_type: z.string(),
           code: z.string(),
           methodology: z.string().optional()
         }).parse(request.params.arguments)
 
-        log("INFO", "grpc request", { tool: "get_hospital_chargemaster_cost", code_type: args.code_type, code: args.code })
+        log("INFO", "grpc request", { tool: "get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_type: args.code_type, code: args.code })
         const grpcStart = Date.now()
 
         let response: unknown
         try {
           response = await new Promise((resolve, reject) => {
             client.GetHospitalCodeCost(
-              { code_type: args.code_type, code: args.code, methodology: args.methodology ?? "" },
+              { hospital_id: args.hospital_id, code_type: args.code_type, code: args.code, methodology: args.methodology ?? "" },
               (err: any, resp: any) => {
                 if (err) reject(err)
                 else resolve(resp)
@@ -255,7 +265,7 @@ function createMcpServer(): Server {
           throw err
         }
 
-        log("INFO", "grpc response", { tool: "get_hospital_chargemaster_cost", code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
+        log("INFO", "grpc response", { tool: "get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
 
         return {
           content: [{

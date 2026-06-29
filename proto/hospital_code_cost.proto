@@ -11,12 +11,14 @@ option (scalapb.options) = {
 };
 
 message HospitalCodeCostRequest {
+  // Opaque handle from HospitalRecord.hospital_id returned by ListHospitals.
+  string hospital_id = 1;
   // e.g. "MS-DRG"
-  string code_type = 1;
+  string code_type = 2;
   // e.g. "652"
-  string code = 2;
+  string code = 3;
   // Methodology db string, e.g. "case rate". Empty means "all methodologies".
-  string methodology = 3;
+  string methodology = 4;
 }
 
 message CodeCostStatsMessage {
@@ -45,12 +47,8 @@ message HospitalCostResult {
   HospitalDescription description = 4;
 }
 
-message HospitalCodeCostResponse {
-  HospitalCostResult mca = 1;
-  HospitalCostResult uihc = 2;
-}
-
 service HospitalCodeCostService {
-  rpc GetHospitalCodeCost (HospitalCodeCostRequest) returns (HospitalCodeCostResponse);
+  // Returns cost stats for the single hospital identified by hospital_id.
+  rpc GetHospitalCodeCost (HospitalCodeCostRequest) returns (HospitalCostResult);
 }
 
