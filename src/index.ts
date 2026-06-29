@@ -29,7 +29,7 @@ if (!grpcHost) {
 // Defaults to TLS so production (no env override) stays secure.
 // Set GRPC_INSECURE=true for local dev against a plaintext gRPC server.
 const grpcCredentials =
-  process.env.GRPC_INSECURE === "true"
+  process.env.GRPC_INSECURE === "true" || process.env.GRPC_INSECURE === "1"
     ? grpc.credentials.createInsecure()
     : grpc.credentials.createSsl()
 
