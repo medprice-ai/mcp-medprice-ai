@@ -15,14 +15,20 @@ To share with everyone in a project, add `--scope project` (writes to `.mcp.json
 
 ## Usage
 
-The server exposes one tool, `get_hospital_chargemaster_cost`, which looks up cost stats for a billing code across hospitals. Once installed, you can just ask your assistant something like:
+The server exposes two tools:
 
-> What's the fee schedule cost of MS-DRG 652 at MedPrice AI's hospitals?
+- **`list_hospitals`** — returns the supported hospitals with their `hospital_id`, EIN, name, and locations.
+- **`get_hospital_chargemaster_cost`** — looks up cost stats for a billing code at a single hospital.
 
-which calls the tool with:
+The typical flow is to call `list_hospitals` first to discover available hospitals and their IDs, then call `get_hospital_chargemaster_cost` with the desired `hospital_id`. Once installed, you can just ask your assistant something like:
+
+> What's the fee schedule cost of MS-DRG 652 at Medical City Alliance?
+
+The assistant will call `list_hospitals` to find the hospital's ID, then call `get_hospital_chargemaster_cost` with:
 
 ```json
 {
+  "hospital_id": "1",
   "code_type": "MS-DRG",
   "code": "652",
   "methodology": "fee schedule"
@@ -33,37 +39,36 @@ and returns:
 
 ```json
 {
-  "mca": {
-    "hospital": "MCA",
-    "found": true,
-    "cost": {
-      "code_type": "MS-DRG",
-      "code": "652",
-      "min": "26851.11",
-      "max": "190885.00",
-      "avg": "34387.70",
-      "median": "28084.07",
-      "std_dev": "13735.94"
-    }
+  "hospital": "MEDICAL CITY ALLIANCE",
+  "found": true,
+  "cost": {
+    "code_type": "MS-DRG",
+    "code": "652",
+    "min": "26851.11",
+    "max": "190885.00",
+    "avg": "34387.70",
+    "median": "28084.07",
+    "std_dev": "13735.94"
   },
-  "uihc": {
-    "hospital": "UIHC",
-    "found": true,
-    "cost": {
-      "code_type": "MS-DRG",
-      "code": "652",
-      "min": "22436.13",
-      "max": "170932.00",
-      "avg": "22981.01",
-      "median": "22884.85",
-      "std_dev": "462.26"
-    }
+  "description": {
+    "hospital_name": "MEDICAL CITY ALLIANCE",
+    "location": "3101 N Tarrant Pkwy, Fort Worth, TX, 76177",
+    "code_description": "KIDNEY TRANSPLANT",
+    "methodology_note": "fee schedule"
   }
 }
 ```
 
 ### Tool reference
 
+#### `list_hospitals`
+
+- **`page_size`** (optional) — maximum number of hospitals to return. Defaults to 20, capped at 100.
+- **`page_token`** (optional) — opaque token from a previous response for pagination.
+
+#### `get_hospital_chargemaster_cost`
+
+- **`hospital_id`** (required) — opaque hospital identifier from `list_hospitals`.
 - **`code_type`** (required) — code system, e.g. `APR-DRG`, `CDM`, `CPT`, `HCPCS`, `MS-DRG`, `RC`. Hospitals may also support additional proprietary code types.
 - **`code`** (required) — the billing/chargemaster code.
 - **`methodology`** (optional) — one of `case rate`, `fee schedule`, `other`, `percent of total billed charges`, `per diem`. Omit to aggregate across all methodologies.
