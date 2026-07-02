@@ -17,6 +17,8 @@ message HospitalRecord {
   string ein = 2;
   string hospital_name = 3;
   repeated string locations = 4;
+  // ISO-8601 date (e.g. "2025-01-01") the source file was last updated on.
+  string last_updated_on = 5;
 }
 
 message ListHospitalsRequest {

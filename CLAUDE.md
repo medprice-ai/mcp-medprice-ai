@@ -43,7 +43,7 @@ This is a **TypeScript MCP (Model Context Protocol) server** that exposes hospit
 1. Loads `proto/hospital_code_cost.proto` and `proto/hospital_registry.proto` at startup via `@grpc/proto-loader`
 2. Creates gRPC clients to `GRPC_HOST` (SSL by default, no auth config — uses system certs; set `GRPC_INSECURE=true` or `GRPC_INSECURE=1` to use plaintext credentials instead, for local dev against a non-TLS server)
 3. Registers two MCP tools:
-   - `list_hospitals` — lists supported hospitals with their `hospital_id`, EIN, name, and locations
+   - `list_hospitals` — lists supported hospitals with their `hospital_id`, EIN, name, locations, and last_updated_on
    - `get_hospital_chargemaster_cost` — looks up cost stats for a single hospital (identified by `hospital_id`) and billing code
 4. Selects transport based on `TRANSPORT` env var:
    - `TRANSPORT=http` — starts an HTTP server on `PORT` (default `3000`), handles all requests at `POST /mcp` via `StreamableHTTPServerTransport` (stateless, suitable for Cloud Run)
