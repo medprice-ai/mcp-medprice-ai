@@ -49,7 +49,7 @@ jobs:
           service_account: github-artifact-publisher@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
 
       - name: Setup gcloud
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Login to Artifact Registry
         run: gcloud auth configure-docker "${GAR_REGION}-docker.pkg.dev" --quiet
