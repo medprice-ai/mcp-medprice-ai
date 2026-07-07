@@ -39,6 +39,84 @@ function log(level: "INFO" | "WARN" | "ERROR", message: string, extra?: Record<s
   logStream.write(JSON.stringify({ severity: level, message, ...extra }) + "\n")
 }
 
+function stripSyntheticOneofs(value: unknown): unknown {
+  return JSON.parse(
+    JSON.stringify(value, (key, nestedValue) =>
+      key.startsWith("_") ? undefined : nestedValue
+    )
+  )
+}
+
+const hospitalChargemasterCostOutputSchema = {
+  type: "object",
+  properties: {
+    hospital: {
+      type: "string",
+      description: "Hospital name returned by the MedPrice AI backend."
+    },
+    found: {
+      type: "boolean",
+      description: "Whether a matching chargemaster cost record was found."
+    },
+    cost: {
+      type: "object",
+      properties: {
+        code_type: { type: "string" },
+        code: { type: "string" },
+        min: { type: "string" },
+        max: { type: "string" },
+        avg: { type: "string" },
+        median: { type: "string" },
+        std_dev: { type: "string" }
+      }
+    },
+    description: {
+      type: "object",
+      properties: {
+        hospital_name: { type: "string" },
+        location: { type: "string" },
+        code_description: { type: "string" },
+        methodology_note: { type: "string" }
+      }
+    }
+  }
+}
+
+const listHospitalsOutputSchema = {
+  type: "object",
+  properties: {
+    hospitals: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          hospital_id: {
+            type: "string",
+            description: "Opaque hospital identifier to use with get_hospital_chargemaster_cost."
+          },
+          ein: {
+            type: "string",
+            description: "Employer Identification Number for the hospital legal entity."
+          },
+          hospital_name: { type: "string" },
+          locations: {
+            type: "array",
+            items: { type: "string" }
+          },
+          last_updated_on: {
+            type: "string",
+            description: "ISO-8601 date the source file was last updated."
+          }
+        }
+      }
+    },
+    next_page_token: {
+      type: "string",
+      description: "Opaque pagination token, empty when there are no more results."
+    }
+  }
+}
+
 const protoLoaderOptions: protoLoader.Options = {
   keepCase: true,
   longs: String,
@@ -131,7 +209,8 @@ function createMcpServer(): Server {
                   }
                 },
                 required: ["hospital_id", "code_type", "code"]
-              }
+              },
+              outputSchema: hospitalChargemasterCostOutputSchema
             },
             list_hospitals: {
               name: "list_hospitals",
@@ -154,7 +233,8 @@ function createMcpServer(): Server {
                     description: "Opaque token from a previous list_hospitals response. Omit for the first page."
                   }
                 }
-              }
+              },
+              outputSchema: listHospitalsOutputSchema
             }
           } as any)
         }
@@ -206,7 +286,8 @@ function createMcpServer(): Server {
               "code_type",
               "code"
             ]
-          }
+          },
+          outputSchema: hospitalChargemasterCostOutputSchema
         },
         {
           name: "list_hospitals",
@@ -229,7 +310,8 @@ function createMcpServer(): Server {
                 description: "Opaque token from a previous list_hospitals response. Omit for the first page."
               }
             }
-          }
+          },
+          outputSchema: listHospitalsOutputSchema
         }
       ]
     })
@@ -266,17 +348,13 @@ function createMcpServer(): Server {
         }
 
         log("INFO", "grpc response", { tool: "get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
+        const structuredContent = stripSyntheticOneofs(response)
 
         return {
+          structuredContent,
           content: [{
             type: "text",
-            text: JSON.stringify(
-              response,
-              // proto3 `optional` fields are backed by synthetic oneofs; with
-              // oneofs:true the decoder leaks "_fieldName" indicator keys — strip them
-              (key, value) => key.startsWith("_") ? undefined : value,
-              2
-            )
+            text: JSON.stringify(structuredContent, null, 2)
           }]
         }
       }
@@ -307,11 +385,13 @@ function createMcpServer(): Server {
         }
 
         log("INFO", "grpc response", { tool: "list_hospitals", duration_ms: Date.now() - grpcStart })
+        const structuredContent = stripSyntheticOneofs(response)
 
         return {
+          structuredContent,
           content: [{
             type: "text",
-            text: JSON.stringify(response, (key, value) => key.startsWith("_") ? undefined : value, 2)
+            text: JSON.stringify(structuredContent, null, 2)
           }]
         }
       }
