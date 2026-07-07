@@ -439,6 +439,9 @@ async function main() {
             }
           }
         })
+      } else if (req.url === "/.well-known/openai-apps-challenge") {
+        res.writeHead(200, { "Content-Type": "text/plain" })
+        res.end("RrHoI1-vNFS7iMcvXReVWdPygAr062ALBT3dONbZy1k")
       } else {
         res.writeHead(404)
         res.end()
