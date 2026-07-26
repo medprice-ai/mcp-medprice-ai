@@ -105,7 +105,24 @@ const listHospitalsOutputSchema = {
           },
           last_updated_on: {
             type: "string",
-            description: "ISO-8601 date the source file was last updated."
+            description: "ISO-8601 date the source file was last updated. Duplicates the last (most recent) entry in revisions."
+          },
+          revisions: {
+            type: "array",
+            description: "Every known revision of this hospital's filing, oldest first. Usually a single entry.",
+            items: {
+              type: "object",
+              properties: {
+                revision_date: {
+                  type: "string",
+                  description: "ISO-8601 date this revision's source file was last updated on."
+                },
+                has_payer_data: {
+                  type: "boolean",
+                  description: "Whether this revision included payer-specific negotiated-rate data, as opposed to gross/cash price only."
+                }
+              }
+            }
           }
         }
       }
@@ -215,7 +232,7 @@ function createMcpServer(): Server {
             list_hospitals: {
               name: "list_hospitals",
               title: "List supported hospitals",
-              description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque DB key), EIN, name, locations, and last_updated_on. Supports pagination.",
+              description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque DB key), EIN, name, locations, last_updated_on, and revision history (with per-revision has_payer_data). Supports pagination.",
               annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,
@@ -292,7 +309,7 @@ function createMcpServer(): Server {
         {
           name: "list_hospitals",
           title: "List supported hospitals",
-          description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque DB key), EIN, name, locations, and last_updated_on. Supports pagination.",
+          description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque DB key), EIN, name, locations, last_updated_on, and revision history (with per-revision has_payer_data). Supports pagination.",
           annotations: {
             readOnlyHint: true,
             destructiveHint: false,
