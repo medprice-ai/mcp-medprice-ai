@@ -11,14 +11,31 @@ option (scalapb.options) = {
 };
 
 message HospitalRecord {
-  // Opaque handle backed by hospital_registry.id (DB primary key).
+  // Opaque handle backed by public.hospital.id (DB primary key).
   string hospital_id = 1;
   // EIN — groups filings from the same legal entity (e.g. "46-4027347").
   string ein = 2;
   string hospital_name = 3;
   repeated string locations = 4;
   // ISO-8601 date (e.g. "2025-01-01") the source file was last updated on.
+  // Duplicates revisions' last (most recent) revision_date - kept for
+  // backwards compatibility with existing clients.
   string last_updated_on = 5;
+  // Every known revision of this hospital's filing (same ein + source_file,
+  // one row per distinct last_updated_on it's been seen with), oldest first.
+  // A hospital normally has one revision; systems like Medical City that have
+  // re-filed under a newer CMS spec version will have more than one, letting
+  // a client compare pricing across revision_dates (see issue #106).
+  repeated HospitalRevisionRecord revisions = 6;
+}
+
+message HospitalRevisionRecord {
+  // ISO-8601 date (e.g. "2026-03-01") this revision's source file was last
+  // updated on.
+  string revision_date = 1;
+  // Whether this revision's source file included any payer-specific
+  // negotiated-rate data, as opposed to gross/cash price only (see #147).
+  bool has_payer_data = 2;
 }
 
 message ListHospitalsRequest {

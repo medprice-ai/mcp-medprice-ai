@@ -17,7 +17,7 @@ To share with everyone in a project, add `--scope project` (writes to `.mcp.json
 
 The server exposes two tools:
 
-- **`list_hospitals`** — returns the supported hospitals with their `hospital_id`, EIN, name, locations, and last_updated_on.
+- **`list_hospitals`** — returns the supported hospitals with their `hospital_id`, EIN, name, locations, last_updated_on, and revision history (each revision's date and whether it has payer-specific rate data).
 - **`get_hospital_chargemaster_cost`** — looks up cost stats for a billing code at a single hospital.
 
 The typical flow is to call `list_hospitals` first to discover available hospitals and their IDs, then call `get_hospital_chargemaster_cost` with the desired `hospital_id`. Once installed, you can just ask your assistant something like:
