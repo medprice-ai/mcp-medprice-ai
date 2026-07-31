@@ -10,13 +10,48 @@ option (scalapb.options) = {
   scala3_sources: true
 };
 
+// Geocoding precision for a Location's coordinates - see issue #190.
+// LOCATION_PRECISION_STREET is a full street-address match;
+// LOCATION_PRECISION_CITY is a fallback to a "city, state" query when the
+// full address didn't resolve on OpenStreetMap/Nominatim;
+// LOCATION_PRECISION_UNKNOWN covers both "not geocoded yet" (lat/lng absent)
+// and coordinates imported from medprice-ai-web's pre-existing geocoded
+// snapshot, which didn't record which tier each address resolved at. Values
+// are prefixed with the enum name (not just STREET/CITY) since proto enum
+// value names share scope with any sibling enum in the same package.
+enum LocationPrecision {
+  LOCATION_PRECISION_UNKNOWN = 0;
+  LOCATION_PRECISION_STREET = 1;
+  LOCATION_PRECISION_CITY = 2;
+}
+
+message Location {
+  // Raw facility address string, as published in the hospital's own source
+  // file - unchanged from what HospitalRecord.locations used to return
+  // directly as a bare string.
+  string address = 1;
+  // Present (via proto3 field-presence tracking, not a sentinel value) only
+  // once `address` has been geocoded - absent, with precision ==
+  // LOCATION_PRECISION_UNKNOWN, for a brand-new hospital not yet covered by
+  // the backfill, or a lookup that failed even the city/state fallback (see
+  // issue #190).
+  optional double lat = 2;
+  optional double lng = 3;
+  LocationPrecision precision = 4;
+}
+
 message HospitalRecord {
   // Opaque handle backed by public.hospital.id (DB primary key).
   string hospital_id = 1;
   // EIN — groups filings from the same legal entity (e.g. "46-4027347").
   string ein = 2;
   string hospital_name = 3;
-  repeated string locations = 4;
+  // Deprecated - use structured_locations instead. Kept, unchanged, for
+  // existing callers of this public/unauthenticated endpoint (see CLAUDE.md)
+  // that haven't migrated: field 4's wire type can't be silently swapped
+  // from `repeated string` to an embedded message without risking a garbled
+  // (not cleanly-erroring) parse for any client we don't control.
+  repeated string locations = 4 [deprecated = true];
   // ISO-8601 date (e.g. "2025-01-01") the source file was last updated on.
   // Duplicates revisions' last (most recent) revision_date - kept for
   // backwards compatibility with existing clients.
@@ -27,6 +62,9 @@ message HospitalRecord {
   // re-filed under a newer CMS spec version will have more than one, letting
   // a client compare pricing across revision_dates (see issue #106).
   repeated HospitalRevisionRecord revisions = 6;
+  // Structured replacement for `locations` (see issue #190) - same
+  // addresses, plus geocoded coordinates where available.
+  repeated Location structured_locations = 7;
 }
 
 message HospitalRevisionRecord {

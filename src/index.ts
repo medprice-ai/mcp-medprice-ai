@@ -101,7 +101,25 @@ const listHospitalsOutputSchema = {
           hospital_name: { type: "string" },
           locations: {
             type: "array",
+            description: "Deprecated - use structured_locations instead.",
             items: { type: "string" }
+          },
+          structured_locations: {
+            type: "array",
+            description: "Same addresses as locations, plus geocoded coordinates where available.",
+            items: {
+              type: "object",
+              properties: {
+                address: { type: "string" },
+                lat: { type: "number" },
+                lng: { type: "number" },
+                precision: {
+                  type: "string",
+                  enum: ["LOCATION_PRECISION_UNKNOWN", "LOCATION_PRECISION_STREET", "LOCATION_PRECISION_CITY"],
+                  description: "Geocoding precision: STREET is a full street-address match, CITY is a city/state fallback, UNKNOWN means not yet geocoded or precision wasn't recorded."
+                }
+              }
+            }
           },
           last_updated_on: {
             type: "string",
@@ -232,7 +250,7 @@ function createMcpServer(): Server {
             list_hospitals: {
               name: "list_hospitals",
               title: "List supported hospitals",
-              description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque DB key), EIN, name, locations, last_updated_on, and revision history (with per-revision has_payer_data). Supports pagination.",
+              description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque DB key), EIN, name, structured_locations (addresses with geocoded coordinates where available), last_updated_on, and revision history (with per-revision has_payer_data). Supports pagination.",
               annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,
@@ -309,7 +327,7 @@ function createMcpServer(): Server {
         {
           name: "list_hospitals",
           title: "List supported hospitals",
-          description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque DB key), EIN, name, locations, last_updated_on, and revision history (with per-revision has_payer_data). Supports pagination.",
+          description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque DB key), EIN, name, structured_locations (addresses with geocoded coordinates where available), last_updated_on, and revision history (with per-revision has_payer_data). Supports pagination.",
           annotations: {
             readOnlyHint: true,
             destructiveHint: false,
