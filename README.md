@@ -15,12 +15,13 @@ To share with everyone in a project, add `--scope project` (writes to `.mcp.json
 
 ## Usage
 
-The server exposes two tools:
+The server exposes three tools:
 
-- **`list_hospitals`** — returns the supported hospitals with their `hospital_id`, EIN, name, structured_locations (addresses with geocoded coordinates where available), last_updated_on, and revision history (each revision's date and whether it has payer-specific rate data).
+- **`list_hospitals`** — returns the supported hospitals with their `hospital_id`, EIN, name, structured_locations (addresses with geocoded coordinates where available), last_updated_on, and revision history (each revision's date, `revision_id`, and whether it has payer-specific rate data).
 - **`get_hospital_chargemaster_cost`** — looks up cost stats for a billing code at a single hospital.
+- **`list_hospital_code_costs`** — looks up cost stats for a billing code across every hospital that has a matching chargemaster entry, paginated. Use this instead of calling `get_hospital_chargemaster_cost` once per hospital when comparing prices for the same procedure across hospitals.
 
-The typical flow is to call `list_hospitals` first to discover available hospitals and their IDs, then call `get_hospital_chargemaster_cost` with the desired `hospital_id`. Once installed, you can just ask your assistant something like:
+The typical flow is to call `list_hospitals` first to discover available hospitals and their IDs, then call `get_hospital_chargemaster_cost` with the desired `hospital_id` — or call `list_hospital_code_costs` directly when the question is about a code across hospitals rather than one specific hospital. Once installed, you can just ask your assistant something like:
 
 > What's the fee schedule cost of MS-DRG 652 at Medical City Alliance?
 
@@ -66,12 +67,27 @@ and returns:
 - **`page_size`** (optional) — maximum number of hospitals to return. Defaults to 20, capped at 100.
 - **`page_token`** (optional) — opaque token from a previous response for pagination.
 
+Each hospital's `revisions` array now includes a `revision_id` per revision (in addition to `revision_date` and `has_payer_data`) — pass it as `get_hospital_chargemaster_cost`'s `revision_id` to price that specific past revision instead of the hospital's latest one.
+
 #### `get_hospital_chargemaster_cost`
 
 - **`hospital_id`** (required) — opaque hospital identifier from `list_hospitals`.
 - **`code_type`** (required) — code system, e.g. `APR-DRG`, `CDM`, `CPT`, `HCPCS`, `MS-DRG`, `RC`. Hospitals may also support additional proprietary code types.
 - **`code`** (required) — the billing/chargemaster code.
 - **`methodology`** (optional) — one of `case rate`, `fee schedule`, `other`, `percent of total billed charges`, `per diem`. Omit to aggregate across all methodologies.
+- **`revision_id`** (optional) — a `revision_id` from `list_hospitals`, to price that specific past revision instead of the hospital's latest one.
+
+#### `list_hospital_code_costs`
+
+Like `get_hospital_chargemaster_cost`, but returns one result per hospital that has a matching chargemaster entry for the code, instead of requiring a `hospital_id` up front — useful for "which hospital is cheapest for X" questions without a `list_hospitals` + N × `get_hospital_chargemaster_cost` round trip.
+
+- **`code_type`** (required) — same as above.
+- **`code`** (required) — same as above.
+- **`methodology`** (optional) — same as above.
+- **`page_size`** (optional) — maximum number of results to return. Defaults to 20, capped at 100.
+- **`page_token`** (optional) — opaque token from a previous response for pagination.
+
+Returns `results` (each shaped like a `get_hospital_chargemaster_cost` response, plus a `hospital_id` to link back to `list_hospitals`/`get_hospital_chargemaster_cost`) and `next_page_token`. Only hospitals with a matching entry (their latest revision) are included — there are no `found: false` entries.
 
 ## Development
 

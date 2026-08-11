@@ -1,0 +1,124 @@
+{
+  "$schema": "https://developers.openai.com/apps-sdk/schemas/chatgpt-app-submission.v1.json",
+  "schema_version": 1,
+  "app_info": {
+    "display_name": "MedPrice AI",
+    "subtitle": "Hospital cost lookup",
+    "description": "MedPrice AI helps users find supported US hospitals, retrieve hospital identifiers, and look up chargemaster cost statistics for billing codes at a selected hospital or compared across all hospitals.",
+    "category": "FINANCE"
+  },
+  "tools": {
+    "get_hospital_chargemaster_cost": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves chargemaster cost statistics for a hospital billing code and returns the result without modifying data.",
+        "open_world_justification": "Does not publish content or change public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "list_hospitals": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves supported hospital records and pagination metadata from the MedPrice AI backend.",
+        "open_world_justification": "Does not publish content or change public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "list_hospital_code_costs": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves chargemaster cost statistics for a billing code across hospitals and returns the result without modifying data.",
+        "open_world_justification": "Does not publish content or change public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    }
+  },
+  "test_cases": [
+    {
+      "description": "Find a hospital and look up a known billing code cost.",
+      "user_prompt": "What's the fee schedule cost of MS-DRG 652 at Medical City Alliance?",
+      "file_attachment_urls": null,
+      "tools_triggered": "list_hospitals, get_hospital_chargemaster_cost",
+      "expected_output": "Identifies the matching hospital, retrieves cost statistics for MS-DRG 652, and summarizes the returned min, max, average, median, and description details.",
+      "expected_output_url": null
+    },
+    {
+      "description": "List supported hospitals with default pagination.",
+      "user_prompt": "Show me hospitals available in MedPrice AI.",
+      "file_attachment_urls": null,
+      "tools_triggered": "list_hospitals",
+      "expected_output": "Returns a page of supported hospitals with hospital IDs, names, EINs, locations, last updated dates, and any next page token.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Use pagination to request a larger hospital page.",
+      "user_prompt": "List up to 50 supported hospitals and tell me if there are more results.",
+      "file_attachment_urls": null,
+      "tools_triggered": "list_hospitals",
+      "expected_output": "Returns up to 50 supported hospitals and indicates whether a next page token is available.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Look up a hospital chargemaster code without a pricing methodology.",
+      "user_prompt": "For hospital ID 1, look up MS-DRG code 652 across all pricing methodologies.",
+      "file_attachment_urls": null,
+      "tools_triggered": "get_hospital_chargemaster_cost",
+      "expected_output": "Retrieves the code cost result using the supplied hospital ID, code type, and code while omitting methodology to aggregate across methodologies.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Look up a CPT or HCPCS code at a specific hospital.",
+      "user_prompt": "Using hospital ID 1, find the chargemaster cost for CPT code 99213.",
+      "file_attachment_urls": null,
+      "tools_triggered": "get_hospital_chargemaster_cost",
+      "expected_output": "Returns the hospital chargemaster cost result for the specified CPT code or explains from the returned data that no matching cost was found.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Compare a billing code's cost across hospitals.",
+      "user_prompt": "Which hospitals have the cheapest price for MS-DRG 652?",
+      "file_attachment_urls": null,
+      "tools_triggered": "list_hospital_code_costs",
+      "expected_output": "Returns cost statistics for MS-DRG 652 across every hospital with a matching chargemaster entry and summarizes which hospitals are cheapest, without requiring a hospital_id up front.",
+      "expected_output_url": null
+    }
+  ],
+  "negative_test_cases": [
+    {
+      "description": "Do not trigger for personal medical advice.",
+      "user_prompt": "Should I get kidney transplant surgery?",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked because it provides hospital chargemaster data, not medical advice or treatment recommendations.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not trigger for unrelated insurance billing support.",
+      "user_prompt": "Can you submit an insurance claim for my hospital visit?",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked because it cannot submit claims or change external insurance systems.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not trigger for hospital quality or ratings requests.",
+      "user_prompt": "Which hospital near me has the best surgical outcomes?",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked because it does not provide quality ratings, outcomes data, or location-based hospital recommendations.",
+      "expected_output_url": null
+    }
+  ]
+}
