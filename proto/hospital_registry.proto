@@ -74,6 +74,10 @@ message HospitalRevisionRecord {
   // Whether this revision's source file included any payer-specific
   // negotiated-rate data, as opposed to gross/cash price only (see #147).
   bool has_payer_data = 2;
+  // Opaque handle pass this back as
+  // HospitalCodeCostRequest.revision_id to price this specific revision
+  // instead of the hospital's latest one.
+  string revision_id = 3;
 }
 
 message ListHospitalsRequest {

@@ -11,7 +11,11 @@ option (scalapb.options) = {
 };
 
 message HospitalCodeCostRequest {
-  // Opaque handle from HospitalRecord.hospital_id returned by ListHospitals.
+  // Opaque handle from HospitalRecord.hospital_id returned by ListHospitals -
+  // backed by public.hospital.id, the stable id that persists across
+  // revisions. Distinct from public.hospital_revision.id, which is never
+  // exposed over gRPC; the server resolves this to that hospital's latest
+  // revision internally.
   string hospital_id = 1;
   // e.g. "MS-DRG"
   string code_type = 2;
@@ -19,6 +23,12 @@ message HospitalCodeCostRequest {
   string code = 3;
   // Methodology db string, e.g. "case rate". Empty means "all methodologies".
   string methodology = 4;
+  // Optional. Empty (default) resolves hospital_id to its latest revision,
+  // same as before this field existed. When set, must be one of the
+  // revision_ids returned for this hospital_id under
+  // HospitalRecord.revisions - prices that specific past
+  // revision instead of the latest one.
+  string revision_id = 5;
 }
 
 message CodeCostStatsMessage {
@@ -45,10 +55,39 @@ message HospitalCostResult {
   optional bool found = 2;
   CodeCostStatsMessage cost = 3;
   HospitalDescription description = 4;
+  // Opaque handle backed by public.hospital.id, same convention as
+  // HospitalRecord.hospital_id - lets a client link this result back to a
+  // hospital detail page without a separate ListHospitals lookup.
+  string hospital_id = 5;
+}
+
+message ListHospitalCodeCostsRequest {
+  // e.g. "MS-DRG"
+  string code_type = 1;
+  // e.g. "652"
+  string code = 2;
+  // Methodology db string, e.g. "case rate". Empty means "all methodologies".
+  string methodology = 3;
+  // Maximum number of results to return. Defaults to 20, capped at 100.
+  int32 page_size = 4;
+  // Opaque token returned by a previous ListHospitalCodeCosts call. Empty for the first page.
+  string page_token = 5;
+}
+
+message ListHospitalCodeCostsResponse {
+  // One entry per hospital with a matching chargemaster entry (its latest
+  // revision only) - hospitals with no data for this code are simply
+  // omitted, not returned with found=false.
+  repeated HospitalCostResult results = 1;
+  // Empty when there are no more results.
+  string next_page_token = 2;
 }
 
 service HospitalCodeCostService {
   // Returns cost stats for the single hospital identified by hospital_id.
   rpc GetHospitalCodeCost (HospitalCodeCostRequest) returns (HospitalCostResult);
+  // Returns cost stats for every hospital with a matching chargemaster entry
+  // for (code_type, code), paginated - see issue #240.
+  rpc ListHospitalCodeCosts (ListHospitalCodeCostsRequest) returns (ListHospitalCodeCostsResponse);
 }
 

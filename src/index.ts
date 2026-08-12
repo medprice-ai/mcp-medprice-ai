@@ -82,6 +82,60 @@ const hospitalChargemasterCostOutputSchema = {
   }
 }
 
+const hospitalCostResultSchema = {
+  type: "object",
+  properties: {
+    hospital: {
+      type: "string",
+      description: "Hospital name returned by the MedPrice AI backend."
+    },
+    found: {
+      type: "boolean",
+      description: "Whether a matching chargemaster cost record was found."
+    },
+    cost: {
+      type: "object",
+      properties: {
+        code_type: { type: "string" },
+        code: { type: "string" },
+        min: { type: "string" },
+        max: { type: "string" },
+        avg: { type: "string" },
+        median: { type: "string" },
+        std_dev: { type: "string" }
+      }
+    },
+    description: {
+      type: "object",
+      properties: {
+        hospital_name: { type: "string" },
+        location: { type: "string" },
+        code_description: { type: "string" },
+        methodology_note: { type: "string" }
+      }
+    },
+    hospital_id: {
+      type: "string",
+      description: "Opaque hospital identifier to use with get_hospital_chargemaster_cost or list_hospitals."
+    }
+  }
+}
+
+const listHospitalCodeCostsOutputSchema = {
+  type: "object",
+  properties: {
+    results: {
+      type: "array",
+      description: "One entry per hospital with a matching chargemaster entry for this code (its latest revision only) - hospitals with no data for this code are omitted, not returned with found=false.",
+      items: hospitalCostResultSchema
+    },
+    next_page_token: {
+      type: "string",
+      description: "Opaque pagination token, empty when there are no more results."
+    }
+  }
+}
+
 const listHospitalsOutputSchema = {
   type: "object",
   properties: {
@@ -138,6 +192,10 @@ const listHospitalsOutputSchema = {
                 has_payer_data: {
                   type: "boolean",
                   description: "Whether this revision included payer-specific negotiated-rate data, as opposed to gross/cash price only."
+                },
+                revision_id: {
+                  type: "string",
+                  description: "Opaque handle for this specific revision - pass back as revision_id to get_hospital_chargemaster_cost to price this revision instead of the hospital's latest one."
                 }
               }
             }
@@ -198,6 +256,115 @@ try {
 }
 
 
+const toolDefinitions = {
+  get_hospital_chargemaster_cost: {
+    name: "get_hospital_chargemaster_cost",
+    title: "Get hospital chargemaster cost",
+    description: "Lookup hospital chargemaster cost",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false
+    },
+    inputSchema: {
+      type: "object",
+      properties: {
+        hospital_id: {
+          type: "string",
+          description: "Opaque hospital identifier from list_hospitals."
+        },
+        code_type: {
+          type: "string",
+          description: "Code system the chargemaster/billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC. Hospitals may also support additional proprietary code types not listed here."
+        },
+        code: { type: "string" },
+        methodology: {
+          type: "string",
+          enum: [
+            "case rate",
+            "fee schedule",
+            "other",
+            "percent of total billed charges",
+            "per diem"
+          ],
+          description: "Pricing methodology. Omit to aggregate across all methodologies."
+        },
+        revision_id: {
+          type: "string",
+          description: "Optional. A revision_id from list_hospitals' per-hospital revisions array, to price that specific past revision instead of the hospital's latest one. Omit to use the latest revision."
+        }
+      },
+      required: ["hospital_id", "code_type", "code"]
+    },
+    outputSchema: hospitalChargemasterCostOutputSchema
+  },
+  list_hospitals: {
+    name: "list_hospitals",
+    title: "List supported hospitals",
+    description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque DB key), EIN, name, structured_locations (addresses with geocoded coordinates where available), last_updated_on, and revision history (with per-revision has_payer_data and revision_id). Supports pagination.",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false
+    },
+    inputSchema: {
+      type: "object",
+      properties: {
+        page_size: {
+          type: "integer",
+          description: "Maximum number of hospitals to return. Defaults to 20, capped at 100."
+        },
+        page_token: {
+          type: "string",
+          description: "Opaque token from a previous list_hospitals response. Omit for the first page."
+        }
+      }
+    },
+    outputSchema: listHospitalsOutputSchema
+  },
+  list_hospital_code_costs: {
+    name: "list_hospital_code_costs",
+    title: "List hospital costs for a billing code",
+    description: "Returns cost stats for every hospital with a matching chargemaster entry for a code_type/code, paginated. Use this instead of calling get_hospital_chargemaster_cost once per hospital when comparing prices for the same procedure across hospitals (e.g. \"which hospital has the cheapest MS-DRG 652?\").",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false
+    },
+    inputSchema: {
+      type: "object",
+      properties: {
+        code_type: {
+          type: "string",
+          description: "Code system the chargemaster/billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC. Hospitals may also support additional proprietary code types not listed here."
+        },
+        code: { type: "string" },
+        methodology: {
+          type: "string",
+          enum: [
+            "case rate",
+            "fee schedule",
+            "other",
+            "percent of total billed charges",
+            "per diem"
+          ],
+          description: "Pricing methodology. Omit to aggregate across all methodologies."
+        },
+        page_size: {
+          type: "integer",
+          description: "Maximum number of results to return. Defaults to 20, capped at 100."
+        },
+        page_token: {
+          type: "string",
+          description: "Opaque token from a previous list_hospital_code_costs response. Omit for the first page."
+        }
+      },
+      required: ["code_type", "code"]
+    },
+    outputSchema: listHospitalCodeCostsOutputSchema
+  }
+} as const
+
 function createMcpServer(): Server {
   const server =
     new Server(
@@ -209,69 +376,7 @@ function createMcpServer(): Server {
       },
       {
         capabilities: {
-          tools: ({
-            get_hospital_chargemaster_cost: {
-              name: "get_hospital_chargemaster_cost",
-              title: "Get hospital chargemaster cost",
-              description: "Lookup hospital chargemaster cost",
-              annotations: {
-                readOnlyHint: true,
-                destructiveHint: false,
-                openWorldHint: false
-              },
-              inputSchema: {
-                type: "object",
-                properties: {
-                  hospital_id: {
-                    type: "string",
-                    description: "Opaque hospital identifier from list_hospitals."
-                  },
-                  code_type: {
-                    type: "string",
-                    description: "Code system the chargemaster/billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC. Hospitals may also support additional proprietary code types not listed here."
-                  },
-                  code: { type: "string" },
-                  methodology: {
-                    type: "string",
-                    enum: [
-                      "case rate",
-                      "fee schedule",
-                      "other",
-                      "percent of total billed charges",
-                      "per diem"
-                    ],
-                    description: "Pricing methodology. Omit to aggregate across all methodologies."
-                  }
-                },
-                required: ["hospital_id", "code_type", "code"]
-              },
-              outputSchema: hospitalChargemasterCostOutputSchema
-            },
-            list_hospitals: {
-              name: "list_hospitals",
-              title: "List supported hospitals",
-              description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque DB key), EIN, name, structured_locations (addresses with geocoded coordinates where available), last_updated_on, and revision history (with per-revision has_payer_data). Supports pagination.",
-              annotations: {
-                readOnlyHint: true,
-                destructiveHint: false,
-                openWorldHint: false
-              },
-              inputSchema: {
-                type: "object",
-                properties: {
-                  page_size: {
-                    type: "integer",
-                    description: "Maximum number of hospitals to return. Defaults to 20, capped at 100."
-                  },
-                  page_token: {
-                    type: "string",
-                    description: "Opaque token from a previous list_hospitals response. Omit for the first page."
-                  }
-                }
-              },
-              outputSchema: listHospitalsOutputSchema
-            }
-          } as any)
+          tools: toolDefinitions as any
         }
       }
     )
@@ -280,75 +385,7 @@ function createMcpServer(): Server {
     ListToolsRequestSchema,
 
     async () => ({
-      tools: [
-        {
-          name: "get_hospital_chargemaster_cost",
-          title: "Get hospital chargemaster cost",
-          description: "Lookup hospital chargemaster cost",
-          annotations: {
-            readOnlyHint: true,
-            destructiveHint: false,
-            openWorldHint: false
-          },
-          inputSchema: {
-            type: "object",
-            properties: {
-              hospital_id: {
-                type: "string",
-                description: "Opaque hospital identifier from list_hospitals."
-              },
-              code_type: {
-                type: "string",
-                description: "Code system the chargemaster/billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC. Hospitals may also support additional proprietary code types not listed here."
-              },
-              code: {
-                type: "string"
-              },
-              methodology: {
-                type: "string",
-                enum: [
-                  "case rate",
-                  "fee schedule",
-                  "other",
-                  "percent of total billed charges",
-                  "per diem"
-                ],
-                description: "Pricing methodology. Omit to aggregate across all methodologies."
-              }
-            },
-            required: [
-              "hospital_id",
-              "code_type",
-              "code"
-            ]
-          },
-          outputSchema: hospitalChargemasterCostOutputSchema
-        },
-        {
-          name: "list_hospitals",
-          title: "List supported hospitals",
-          description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque DB key), EIN, name, structured_locations (addresses with geocoded coordinates where available), last_updated_on, and revision history (with per-revision has_payer_data). Supports pagination.",
-          annotations: {
-            readOnlyHint: true,
-            destructiveHint: false,
-            openWorldHint: false
-          },
-          inputSchema: {
-            type: "object",
-            properties: {
-              page_size: {
-                type: "integer",
-                description: "Maximum number of hospitals to return. Defaults to 20, capped at 100."
-              },
-              page_token: {
-                type: "string",
-                description: "Opaque token from a previous list_hospitals response. Omit for the first page."
-              }
-            }
-          },
-          outputSchema: listHospitalsOutputSchema
-        }
-      ]
+      tools: Object.values(toolDefinitions)
     })
   )
 
@@ -360,7 +397,8 @@ function createMcpServer(): Server {
           hospital_id: z.string(),
           code_type: z.string(),
           code: z.string(),
-          methodology: z.string().optional()
+          methodology: z.string().optional(),
+          revision_id: z.string().optional()
         }).parse(request.params.arguments)
 
         log("INFO", "grpc request", { tool: "get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_type: args.code_type, code: args.code })
@@ -370,7 +408,7 @@ function createMcpServer(): Server {
         try {
           response = await new Promise((resolve, reject) => {
             client.GetHospitalCodeCost(
-              { hospital_id: args.hospital_id, code_type: args.code_type, code: args.code, methodology: args.methodology ?? "" },
+              { hospital_id: args.hospital_id, code_type: args.code_type, code: args.code, methodology: args.methodology ?? "", revision_id: args.revision_id ?? "" },
               (err: any, resp: any) => {
                 if (err) reject(err)
                 else resolve(resp)
@@ -420,6 +458,46 @@ function createMcpServer(): Server {
         }
 
         log("INFO", "grpc response", { tool: "list_hospitals", duration_ms: Date.now() - grpcStart })
+        const structuredContent = stripSyntheticOneofs(response)
+
+        return {
+          structuredContent,
+          content: [{
+            type: "text",
+            text: JSON.stringify(structuredContent, null, 2)
+          }]
+        }
+      }
+
+      if (request.params.name === "list_hospital_code_costs") {
+        const args = z.object({
+          code_type: z.string(),
+          code: z.string(),
+          methodology: z.string().optional(),
+          page_size: z.number().int().optional(),
+          page_token: z.string().optional()
+        }).parse(request.params.arguments)
+
+        log("INFO", "grpc request", { tool: "list_hospital_code_costs", code_type: args.code_type, code: args.code })
+        const grpcStart = Date.now()
+
+        let response: unknown
+        try {
+          response = await new Promise((resolve, reject) => {
+            client.ListHospitalCodeCosts(
+              { code_type: args.code_type, code: args.code, methodology: args.methodology ?? "", page_size: args.page_size ?? 0, page_token: args.page_token ?? "" },
+              (err: any, resp: any) => {
+                if (err) reject(err)
+                else resolve(resp)
+              }
+            )
+          })
+        } catch (err) {
+          log("ERROR", "grpc request failed", { tool: "list_hospital_code_costs", code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart, error: String(err) })
+          throw err
+        }
+
+        log("INFO", "grpc response", { tool: "list_hospital_code_costs", code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
         const structuredContent = stripSyntheticOneofs(response)
 
         return {
