@@ -81,7 +81,10 @@ message HospitalRevisionRecord {
 }
 
 message ListHospitalsRequest {
-  // Maximum number of hospitals to return. Defaults to 20, capped at 100.
+  // Maximum number of hospitals to return. Defaults to 500, capped at 500 -
+  // comfortably covers the whole current registry (~330 hospitals) in one
+  // call, since an LLM caller can't be relied on to always notice
+  // next_page_token and continue (see issue #163).
   int32 page_size = 1;
   // Opaque token returned by a previous ListHospitals call. Empty for the first page.
   string page_token = 2;
@@ -91,6 +94,10 @@ message ListHospitalsResponse {
   repeated HospitalRecord hospitals = 1;
   // Empty when there are no more results.
   string next_page_token = 2;
+  // Total number of hospitals matching this query, across all pages - lets a
+  // caller sanity-check "got N of total_count" instead of only seeing
+  // next_page_token and having to infer there's more (see issue #163).
+  int32 total_count = 3;
 }
 
 service HospitalRegistryService {

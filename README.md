@@ -64,8 +64,8 @@ and returns:
 
 #### `list_hospitals`
 
-- **`page_size`** (optional) — maximum number of hospitals to return. Defaults to 20, capped at 100.
-- **`page_token`** (optional) — opaque token from a previous response for pagination.
+- **`page_size`** (optional) — maximum number of hospitals to return. Defaults to 500 (the entire current registry in one call), capped at 500.
+- **`page_token`** (optional) — opaque token from a previous response's `next_page_token`, for pagination. If `next_page_token` is non-empty, keep calling with it until it's empty rather than assuming one page is the full list.
 
 Each hospital's `revisions` array now includes a `revision_id` per revision (in addition to `revision_date` and `has_payer_data`) — pass it as `get_hospital_chargemaster_cost`'s `revision_id` to price that specific past revision instead of the hospital's latest one.
 
@@ -84,8 +84,8 @@ Like `get_hospital_chargemaster_cost`, but returns one result per hospital that 
 - **`code_type`** (required) — same as above.
 - **`code`** (required) — same as above.
 - **`methodology`** (optional) — same as above.
-- **`page_size`** (optional) — maximum number of results to return. Defaults to 20, capped at 100.
-- **`page_token`** (optional) — opaque token from a previous response for pagination.
+- **`page_size`** (optional) — maximum number of results to return. Defaults to 500 (every matching hospital in one call at the current registry size), capped at 500.
+- **`page_token`** (optional) — opaque token from a previous response's `next_page_token`, for pagination. If `next_page_token` is non-empty, keep calling with it until it's empty rather than assuming one page is the full list.
 
 Returns `results` (each shaped like a `get_hospital_chargemaster_cost` response, plus a `hospital_id` to link back to `list_hospitals`/`get_hospital_chargemaster_cost`) and `next_page_token`. Only hospitals with a matching entry (their latest revision) are included — there are no `found: false` entries.
 
