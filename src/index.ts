@@ -132,6 +132,10 @@ const listHospitalCodeCostsOutputSchema = {
     next_page_token: {
       type: "string",
       description: "Opaque pagination token, empty when there are no more results."
+    },
+    total_count: {
+      type: "integer",
+      description: "Total number of matching results across all pages, not just this page's results.length. Compare against results.length (plus any prior pages) to confirm you have the complete set before concluding a hospital or code has no data."
     }
   }
 }
@@ -206,6 +210,10 @@ const listHospitalsOutputSchema = {
     next_page_token: {
       type: "string",
       description: "Opaque pagination token, empty when there are no more results."
+    },
+    total_count: {
+      type: "integer",
+      description: "Total number of hospitals matching this query, across all pages, not just this page's hospitals.length. Compare against hospitals.length (plus any prior pages) before concluding the full hospital list has been seen - e.g. before answering 'does medprice.ai support any hospitals in state X' or similar completeness questions."
     }
   }
 }
@@ -301,7 +309,7 @@ const toolDefinitions = {
   list_hospitals: {
     name: "list_hospitals",
     title: "List supported hospitals",
-    description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque DB key), EIN, name, structured_locations (addresses with geocoded coordinates where available), last_updated_on, and revision history (with per-revision has_payer_data and revision_id). Supports pagination.",
+    description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque DB key), EIN, name, structured_locations (addresses with geocoded coordinates where available), last_updated_on, and revision history (with per-revision has_payer_data and revision_id). Defaults to returning the entire registry (currently a few hundred hospitals) in one call. If the response's next_page_token is non-empty, the result set was truncated: call this tool again passing that exact value as page_token to get the next page, and keep doing so until next_page_token is empty - do not stop after one page and conclude the list is complete. The response's total_count field (total across all pages) can be compared against how many hospitals you've accumulated so far as a completeness check, e.g. before answering questions like 'does medprice.ai cover any hospitals in Iowa'.",
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -312,11 +320,11 @@ const toolDefinitions = {
       properties: {
         page_size: {
           type: "integer",
-          description: "Maximum number of hospitals to return. Defaults to 20, capped at 100."
+          description: "Maximum number of hospitals to return. Defaults to 500 (covering the entire current registry in one call), capped at 500."
         },
         page_token: {
           type: "string",
-          description: "Opaque token from a previous list_hospitals response. Omit for the first page."
+          description: "Opaque token from a previous list_hospitals response's next_page_token field. Omit for the first page. Do not pass any other value (e.g. an offset or cursor you construct yourself) here."
         }
       }
     },
@@ -325,7 +333,7 @@ const toolDefinitions = {
   list_hospital_code_costs: {
     name: "list_hospital_code_costs",
     title: "List hospital costs for a billing code",
-    description: "Returns cost stats for every hospital with a matching chargemaster entry for a code_type/code, paginated. Use this instead of calling get_hospital_chargemaster_cost once per hospital when comparing prices for the same procedure across hospitals (e.g. \"which hospital has the cheapest MS-DRG 652?\").",
+    description: "Returns cost stats for every hospital with a matching chargemaster entry for a code_type/code. Use this instead of calling get_hospital_chargemaster_cost once per hospital when comparing prices for the same procedure across hospitals (e.g. \"which hospital has the cheapest MS-DRG 652?\"). Defaults to returning every matching hospital (currently at most a few hundred) in one call. If the response's next_page_token is non-empty, the result set was truncated: call this tool again passing that exact value as page_token to get the next page, and keep doing so until next_page_token is empty - do not stop after one page and conclude a hospital has no data for this code. The response's total_count field (total across all pages) can be compared against how many results you've accumulated so far as a completeness check.",
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -352,11 +360,11 @@ const toolDefinitions = {
         },
         page_size: {
           type: "integer",
-          description: "Maximum number of results to return. Defaults to 20, capped at 100."
+          description: "Maximum number of results to return. Defaults to 500 (covering every matching hospital in one call at the current registry size), capped at 500."
         },
         page_token: {
           type: "string",
-          description: "Opaque token from a previous list_hospital_code_costs response. Omit for the first page."
+          description: "Opaque token from a previous list_hospital_code_costs response's next_page_token field. Omit for the first page. Do not pass any other value (e.g. an offset or cursor you construct yourself) here."
         }
       },
       required: ["code_type", "code"]
