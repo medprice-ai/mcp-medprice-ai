@@ -218,6 +218,61 @@ const listHospitalsOutputSchema = {
   }
 }
 
+const listCodeTypesOutputSchema = {
+  type: "object",
+  properties: {
+    code_types: {
+      type: "array",
+      description: "One entry per distinct code_type present in the catalog, most code-rich first. Unpaginated.",
+      items: {
+        type: "object",
+        properties: {
+          code_type: { type: "string", description: "e.g. \"CPT\"" },
+          code_count: {
+            type: "integer",
+            description: "Distinct codes catalogued under this type."
+          },
+          total_hospital_reports: {
+            type: "integer",
+            description: "Sum of hospital_count across every code under this type - NOT a distinct-hospital count (a hospital reporting many codes under one type is counted once per code)."
+          }
+        }
+      }
+    }
+  }
+}
+
+const listCodesOutputSchema = {
+  type: "object",
+  properties: {
+    codes: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          raw_description: {
+            type: "string",
+            description: "Raw chargemaster text, picked across reporting hospitals. Not necessarily a human-readable procedure name."
+          },
+          hospital_count: {
+            type: "integer",
+            description: "Distinct hospitals reporting this code (latest revision only)."
+          }
+        }
+      }
+    },
+    next_page_token: {
+      type: "string",
+      description: "Opaque pagination token, empty when there are no more results."
+    },
+    total_count: {
+      type: "integer",
+      description: "Total number of matching codes across all pages."
+    }
+  }
+}
+
 const protoLoaderOptions: protoLoader.Options = {
   keepCase: true,
   longs: String,
@@ -370,6 +425,50 @@ const toolDefinitions = {
       required: ["code_type", "code"]
     },
     outputSchema: listHospitalCodeCostsOutputSchema
+  },
+  list_code_types: {
+    name: "list_code_types",
+    title: "List billing code types",
+    description: "Returns every distinct code_type (e.g. CPT, MS-DRG) with catalogued cost data, along with each type's distinct code count and total hospital reports. Unpaginated. Use this to discover which code systems have data before drilling into list_codes.",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false
+    },
+    inputSchema: {
+      type: "object",
+      properties: {}
+    },
+    outputSchema: listCodeTypesOutputSchema
+  },
+  list_codes: {
+    name: "list_codes",
+    title: "List billing codes for a code type",
+    description: "Returns every distinct code catalogued under a given code_type, paginated, with each code's raw chargemaster description and the number of hospitals reporting it. Use this to discover which codes exist under a code system (e.g. all CPT codes) before looking up prices with get_hospital_chargemaster_cost or list_hospital_code_costs.",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false
+    },
+    inputSchema: {
+      type: "object",
+      properties: {
+        code_type: {
+          type: "string",
+          description: "Code system to list codes for, e.g. \"CPT\". From list_code_types."
+        },
+        page_size: {
+          type: "integer",
+          description: "Maximum number of results to return. Defaults to 500, capped at 500."
+        },
+        page_token: {
+          type: "string",
+          description: "Opaque token from a previous list_codes response. Omit for the first page."
+        }
+      },
+      required: ["code_type"]
+    },
+    outputSchema: listCodesOutputSchema
   }
 } as const
 
@@ -506,6 +605,76 @@ function createMcpServer(): Server {
         }
 
         log("INFO", "grpc response", { tool: "list_hospital_code_costs", code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
+        const structuredContent = stripSyntheticOneofs(response)
+
+        return {
+          structuredContent,
+          content: [{
+            type: "text",
+            text: JSON.stringify(structuredContent, null, 2)
+          }]
+        }
+      }
+
+      if (request.params.name === "list_code_types") {
+        log("INFO", "grpc request", { tool: "list_code_types" })
+        const grpcStart = Date.now()
+
+        let response: unknown
+        try {
+          response = await new Promise((resolve, reject) => {
+            client.ListCodeTypes(
+              {},
+              (err: any, resp: any) => {
+                if (err) reject(err)
+                else resolve(resp)
+              }
+            )
+          })
+        } catch (err) {
+          log("ERROR", "grpc request failed", { tool: "list_code_types", duration_ms: Date.now() - grpcStart, error: String(err) })
+          throw err
+        }
+
+        log("INFO", "grpc response", { tool: "list_code_types", duration_ms: Date.now() - grpcStart })
+        const structuredContent = stripSyntheticOneofs(response)
+
+        return {
+          structuredContent,
+          content: [{
+            type: "text",
+            text: JSON.stringify(structuredContent, null, 2)
+          }]
+        }
+      }
+
+      if (request.params.name === "list_codes") {
+        const args = z.object({
+          code_type: z.string(),
+          page_size: z.number().int().optional(),
+          page_token: z.string().optional()
+        }).parse(request.params.arguments)
+
+        log("INFO", "grpc request", { tool: "list_codes", code_type: args.code_type })
+        const grpcStart = Date.now()
+
+        let response: unknown
+        try {
+          response = await new Promise((resolve, reject) => {
+            client.ListCodes(
+              { code_type: args.code_type, page_size: args.page_size ?? 0, page_token: args.page_token ?? "" },
+              (err: any, resp: any) => {
+                if (err) reject(err)
+                else resolve(resp)
+              }
+            )
+          })
+        } catch (err) {
+          log("ERROR", "grpc request failed", { tool: "list_codes", code_type: args.code_type, duration_ms: Date.now() - grpcStart, error: String(err) })
+          throw err
+        }
+
+        log("INFO", "grpc response", { tool: "list_codes", code_type: args.code_type, duration_ms: Date.now() - grpcStart })
         const structuredContent = stripSyntheticOneofs(response)
 
         return {

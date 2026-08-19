@@ -90,11 +90,68 @@ message ListHospitalCodeCostsResponse {
   int32 total_count = 3;
 }
 
+message ListCodeTypesRequest {
+}
+
+message CodeTypeSummary {
+  // e.g. "CPT" - see core.api.CodeType.
+  string code_type = 1;
+  // Distinct codes catalogued under this type.
+  int32 code_count = 2;
+  // Sum of hospital_count across every code under this type - NOT a
+  // distinct-hospital count (a hospital reporting many codes under one type
+  // is counted once per code). See CodeTypeSummary's Scala doc comment.
+  int32 total_hospital_reports = 3;
+}
+
+message ListCodeTypesResponse {
+  // One entry per distinct code_type present in public.code_catalog, most
+  // code-rich first. Unpaginated - the number of distinct code types is
+  // small and bounded (see core.api.CodeType).
+  repeated CodeTypeSummary code_types = 1;
+}
+
+message ListCodesRequest {
+  // e.g. "CPT"
+  string code_type = 1;
+  // Maximum number of results to return. Defaults to 500, capped at 500 -
+  // same convention as ListHospitalCodeCostsRequest.page_size.
+  int32 page_size = 2;
+  // Opaque token returned by a previous ListCodes call. Empty for the first page.
+  string page_token = 3;
+}
+
+message CodeSummary {
+  string code = 1;
+  // Raw chargemaster text, MODE()-picked across reporting hospitals - same
+  // caveat as HospitalDescription.code_description (see issue #266: this is
+  // not a human-readable procedure name).
+  string raw_description = 2;
+  // Distinct hospitals reporting this code (latest revision only) - lets a
+  // caller decide what's worth a page/link for, rather than the server
+  // imposing a fixed threshold (see issue #286).
+  int32 hospital_count = 3;
+}
+
+message ListCodesResponse {
+  repeated CodeSummary codes = 1;
+  // Empty when there are no more results.
+  string next_page_token = 2;
+  // Total number of matching codes across all pages - see issue #163.
+  int32 total_count = 3;
+}
+
 service HospitalCodeCostService {
   // Returns cost stats for the single hospital identified by hospital_id.
   rpc GetHospitalCodeCost (HospitalCodeCostRequest) returns (HospitalCostResult);
   // Returns cost stats for every hospital with a matching chargemaster entry
   // for (code_type, code), paginated - see issue #240.
   rpc ListHospitalCodeCosts (ListHospitalCodeCostsRequest) returns (ListHospitalCodeCostsResponse);
+  // Returns every distinct code_type reporting data, for a /codes index page
+  // - see issue #286.
+  rpc ListCodeTypes (ListCodeTypesRequest) returns (ListCodeTypesResponse);
+  // Returns every distinct code under a given code_type, paginated, for a
+  // /codes/[codeType] index page - see issue #286.
+  rpc ListCodes (ListCodesRequest) returns (ListCodesResponse);
 }
 
