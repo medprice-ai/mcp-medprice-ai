@@ -15,11 +15,13 @@ To share with everyone in a project, add `--scope project` (writes to `.mcp.json
 
 ## Usage
 
-The server exposes three tools:
+The server exposes five tools:
 
 - **`list_hospitals`** — returns the supported hospitals with their `hospital_id`, EIN, name, structured_locations (addresses with geocoded coordinates where available), last_updated_on, and revision history (each revision's date, `revision_id`, and whether it has payer-specific rate data).
 - **`get_hospital_chargemaster_cost`** — looks up cost stats for a billing code at a single hospital.
 - **`list_hospital_code_costs`** — looks up cost stats for a billing code across every hospital that has a matching chargemaster entry, paginated. Use this instead of calling `get_hospital_chargemaster_cost` once per hospital when comparing prices for the same procedure across hospitals.
+- **`list_code_types`** — lists every distinct billing code type (e.g. CPT, MS-DRG) with catalogued cost data, along with each type's distinct code count and total hospital reports.
+- **`list_codes`** — lists every distinct code under a given code type, paginated, with a raw chargemaster description and reporting-hospital count per code. Use this to discover which codes exist under a code system before pricing them.
 
 The typical flow is to call `list_hospitals` first to discover available hospitals and their IDs, then call `get_hospital_chargemaster_cost` with the desired `hospital_id` — or call `list_hospital_code_costs` directly when the question is about a code across hospitals rather than one specific hospital. Once installed, you can just ask your assistant something like:
 
@@ -88,6 +90,20 @@ Like `get_hospital_chargemaster_cost`, but returns one result per hospital that 
 - **`page_token`** (optional) — opaque token from a previous response's `next_page_token`, for pagination. If `next_page_token` is non-empty, keep calling with it until it's empty rather than assuming one page is the full list.
 
 Returns `results` (each shaped like a `get_hospital_chargemaster_cost` response, plus a `hospital_id` to link back to `list_hospitals`/`get_hospital_chargemaster_cost`) and `next_page_token`. Only hospitals with a matching entry (their latest revision) are included — there are no `found: false` entries.
+
+#### `list_code_types`
+
+No arguments. Returns `code_types`, one entry per distinct code type present in the catalog (most code-rich first), each with `code_type`, `code_count` (distinct codes catalogued under that type), and `total_hospital_reports` (sum of `hospital_count` across every code under that type — not a distinct-hospital count). Unpaginated.
+
+Use this to discover which code systems have data before drilling into `list_codes`.
+
+#### `list_codes`
+
+- **`code_type`** (required) — code system to list codes for, e.g. `CPT`. From `list_code_types`.
+- **`page_size`** (optional) — maximum number of results to return. Defaults to 500, capped at 500.
+- **`page_token`** (optional) — opaque token from a previous response's `next_page_token`, for pagination. If `next_page_token` is non-empty, keep calling with it until it's empty rather than assuming one page is the full list.
+
+Returns `codes` (each with `code`, `raw_description` — raw chargemaster text, not necessarily a human-readable procedure name — and `hospital_count`, distinct hospitals reporting that code on their latest revision), `next_page_token`, and `total_count` (total matching codes across all pages). Use this to discover which codes exist under a code system before pricing them with `get_hospital_chargemaster_cost` or `list_hospital_code_costs`.
 
 ## Development
 
