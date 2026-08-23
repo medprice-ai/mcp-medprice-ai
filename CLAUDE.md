@@ -51,7 +51,7 @@ This is a **TypeScript MCP (Model Context Protocol) server** that exposes hospit
 
    `list_hospitals` and `list_hospital_code_costs` default/cap their `page_size` at 500 (widened from 20/100 as an LLM stopgap — upstream issue #163) and include a `total_count` field in their responses so a caller can sanity-check "got N of total_count" instead of only seeing `next_page_token`.
 4. Selects transport based on `TRANSPORT` env var:
-   - `TRANSPORT=http` — starts an HTTP server on `PORT` (default `3000`), handles all requests at `POST /mcp` via `NodeStreamableHTTPServerTransport` from `@modelcontextprotocol/node` (stateless, suitable for Cloud Run)
+   - `TRANSPORT=http` — starts an HTTP server on `PORT` (default `3000`), handles all requests at `POST /mcp` via `createMcpHandler` (`@modelcontextprotocol/server`) wrapped in `toNodeHandler` (`@modelcontextprotocol/node`) — stateless (fresh `Server` per exchange), and serves both legacy (2025-and-earlier) and modern (2026-07-28+) protocol revisions from the same `createMcpServer` factory. A bare `Server` + Node HTTP transport (no `createMcpHandler`) only ever speaks the legacy set in `SUPPORTED_PROTOCOL_VERSIONS` — `createMcpHandler` is what adds modern-era support on top.
    - default — connects via `StdioServerTransport` over stdin/stdout
 
 **Proto services** (backend is Scala/ScalaPB, repo `medprice-ai`):

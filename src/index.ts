@@ -4,11 +4,11 @@ import * as path from "path"
 
 import { z } from "zod"
 
-import { Server } from "@modelcontextprotocol/server"
+import { Server, createMcpHandler } from "@modelcontextprotocol/server"
 
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio"
 
-import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node"
+import { toNodeHandler } from "@modelcontextprotocol/node"
 
 import * as http from "http"
 
@@ -690,6 +690,16 @@ async function main() {
   if (process.env.TRANSPORT === "http") {
     const port = parseInt(process.env.PORT ?? "3000")
 
+    // Serves both legacy (2025-and-earlier) and modern (2026-07-28+) protocol
+    // revisions from the same factory - a fresh Server per exchange either
+    // way, so this stays stateless. The legacy leg alone (bare Server +
+    // a Node HTTP transport) only ever speaks SUPPORTED_PROTOCOL_VERSIONS'
+    // legacy set; createMcpHandler is what adds the modern leg on top.
+    const mcpHandler = createMcpHandler(() => createMcpServer(), {
+      onerror: (err) => log("ERROR", "MCP transport error", { error: String(err) })
+    })
+    const handleMcpRequest = toNodeHandler(mcpHandler)
+
     const httpServer = http.createServer(async (req, res) => {
       if (req.url === "/mcp") {
         if (req.method !== "POST") {
@@ -700,27 +710,15 @@ async function main() {
           return
         }
 
-        const chunks: Buffer[] = []
-        req.on("data", (chunk: Buffer) => chunks.push(chunk))
-        req.on("end", async () => {
-          try {
-            const body = chunks.length
-              ? JSON.parse(Buffer.concat(chunks).toString())
-              : undefined
-            // Stateless mode: fresh server + transport per request
-            const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined })
-            transport.onerror = (err) => log("ERROR", "MCP transport error", { error: String(err) })
-            const mcpServer = createMcpServer()
-            await mcpServer.connect(transport)
-            await transport.handleRequest(req, res, body)
-          } catch (err) {
-            log("ERROR", "MCP request error", { error: String(err) })
-            if (!res.headersSent) {
-              res.writeHead(500, { "Content-Type": "application/json" })
-              res.end(JSON.stringify({ error: String(err) }))
-            }
+        try {
+          await handleMcpRequest(req, res)
+        } catch (err) {
+          log("ERROR", "MCP request error", { error: String(err) })
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" })
+            res.end(JSON.stringify({ error: String(err) }))
           }
-        })
+        }
       } else if (req.url === "/.well-known/openai-apps-challenge") {
         res.writeHead(200, { "Content-Type": "text/plain" })
         res.end("RrHoI1-vNFS7iMcvXReVWdPygAr062ALBT3dONbZy1k")
