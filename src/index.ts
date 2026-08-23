@@ -4,21 +4,13 @@ import * as path from "path"
 
 import { z } from "zod"
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js"
+import { Server } from "@modelcontextprotocol/server"
 
-import { StdioServerTransport }
-from "@modelcontextprotocol/sdk/server/stdio.js"
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio"
 
-import { StreamableHTTPServerTransport }
-from "@modelcontextprotocol/sdk/server/streamableHttp.js"
+import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node"
 
 import * as http from "http"
-
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema
-}
-from "@modelcontextprotocol/sdk/types.js"
 
 const grpcHost = process.env.GRPC_HOST
 if (!grpcHost) {
@@ -489,15 +481,15 @@ function createMcpServer(): Server {
     )
 
   server.setRequestHandler(
-    ListToolsRequestSchema,
+    "tools/list",
 
     async () => ({
-      tools: Object.values(toolDefinitions)
+      tools: Object.values(toolDefinitions) as any
     })
   )
 
   server.setRequestHandler(
-    CallToolRequestSchema,
+    "tools/call",
     async (request) => {
       if (request.params.name === "get_hospital_chargemaster_cost") {
         const args = z.object({
@@ -716,7 +708,7 @@ async function main() {
               ? JSON.parse(Buffer.concat(chunks).toString())
               : undefined
             // Stateless mode: fresh server + transport per request
-            const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+            const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined })
             transport.onerror = (err) => log("ERROR", "MCP transport error", { error: String(err) })
             const mcpServer = createMcpServer()
             await mcpServer.connect(transport)
