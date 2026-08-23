@@ -10,6 +10,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/server/stdio"
 
 import { toNodeHandler } from "@modelcontextprotocol/node"
 
+import { downgradeLegacyEnvelope } from "./protocolDowngrade"
+
 import * as http from "http"
 
 const grpcHost = process.env.GRPC_HOST
@@ -686,6 +688,12 @@ function createMcpServer(): Server {
 
 
 
+async function readRequestBody(req: http.IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) chunks.push(chunk as Buffer)
+  return Buffer.concat(chunks).toString()
+}
+
 async function main() {
   if (process.env.TRANSPORT === "http") {
     const port = parseInt(process.env.PORT ?? "3000")
@@ -711,7 +719,24 @@ async function main() {
         }
 
         try {
-          await handleMcpRequest(req, res)
+          const rawBody = await readRequestBody(req)
+
+          let parsedBody: unknown
+          try {
+            parsedBody = rawBody.length ? JSON.parse(rawBody) : undefined
+          } catch {
+            // Malformed JSON - fall through with no parsed body so the
+            // modern handler produces its own parse-error response, same as
+            // if we hadn't intercepted the request at all.
+            parsedBody = undefined
+          }
+
+          const { body, downgraded } = downgradeLegacyEnvelope(parsedBody)
+          if (downgraded) {
+            log("INFO", "stripped modern _meta envelope naming a legacy protocol version, serving as legacy (#43)")
+          }
+
+          await handleMcpRequest(req, res, body)
         } catch (err) {
           log("ERROR", "MCP request error", { error: String(err) })
           if (!res.headersSent) {
