@@ -458,6 +458,11 @@ const toolDefinitions = {
         page_token: {
           type: "string",
           description: "Opaque token from a previous list_codes response. Omit for the first page."
+        },
+        sort: {
+          type: "string",
+          enum: ["CODE_SORT_UNSPECIFIED", "CODE_SORT_HOSPITAL_COUNT_DESC"],
+          description: "Ordering for the returned codes. CODE_SORT_UNSPECIFIED (default) sorts code-alphabetical. CODE_SORT_HOSPITAL_COUNT_DESC sorts most-hospitals-reporting first, for pre-sorted 'top codes' pages."
         }
       },
       required: ["code_type"]
@@ -646,7 +651,8 @@ function createMcpServer(): Server {
         const args = z.object({
           code_type: z.string(),
           page_size: z.number().int().optional(),
-          page_token: z.string().optional()
+          page_token: z.string().optional(),
+          sort: z.enum(["CODE_SORT_UNSPECIFIED", "CODE_SORT_HOSPITAL_COUNT_DESC"]).optional()
         }).parse(request.params.arguments)
 
         log("INFO", "grpc request", { tool: "list_codes", code_type: args.code_type })
@@ -656,7 +662,7 @@ function createMcpServer(): Server {
         try {
           response = await new Promise((resolve, reject) => {
             client.ListCodes(
-              { code_type: args.code_type, page_size: args.page_size ?? 0, page_token: args.page_token ?? "" },
+              { code_type: args.code_type, page_size: args.page_size ?? 0, page_token: args.page_token ?? "", sort: args.sort ?? "CODE_SORT_UNSPECIFIED" },
               (err: any, resp: any) => {
                 if (err) reject(err)
                 else resolve(resp)

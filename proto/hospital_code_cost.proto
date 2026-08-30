@@ -111,6 +111,15 @@ message ListCodeTypesResponse {
   repeated CodeTypeSummary code_types = 1;
 }
 
+enum CodeSort {
+  // Code-alphabetical - the original, and still default, ordering.
+  CODE_SORT_UNSPECIFIED = 0;
+  // Most hospitals reporting first - lets a caller (e.g. a
+  // /codes/[codeType] page) get pre-sorted "top codes" pages in one round
+  // trip instead of fetching every page and sorting client-side (#399).
+  CODE_SORT_HOSPITAL_COUNT_DESC = 1;
+}
+
 message ListCodesRequest {
   // e.g. "CPT"
   string code_type = 1;
@@ -119,6 +128,8 @@ message ListCodesRequest {
   int32 page_size = 2;
   // Opaque token returned by a previous ListCodes call. Empty for the first page.
   string page_token = 3;
+  // Defaults to CODE_SORT_UNSPECIFIED (code-alphabetical) - see #399.
+  CodeSort sort = 4;
 }
 
 message CodeSummary {
