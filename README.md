@@ -31,7 +31,7 @@ The assistant will call `list_hospitals` to find the hospital's ID, then call `g
 
 ```json
 {
-  "hospital_id": "1",
+  "hospital_id": "3f9a1c2b8e4d5f6a7b8c9d0e1f2a3b4c",
   "code_type": "MS-DRG",
   "code": "652",
   "methodology": "fee schedule"
