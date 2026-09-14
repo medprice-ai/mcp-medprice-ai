@@ -78,6 +78,13 @@ message HospitalRevisionRecord {
   // HospitalCodeCostRequest.revision_id to price this specific revision
   // instead of the hospital's latest one.
   string revision_id = 3;
+  // ISO-8601 UTC timestamp (e.g. "2026-03-01T12:34:56Z") of when medprice
+  // itself ingested this revision - set server-side at insert time, not
+  // derived from the source file's own last_updated_on (which can lag well
+  // behind when medprice actually picked the file up). Lets a consumer sort
+  // by "recently added to medprice" instead of "recently updated by the
+  // hospital" (see issue #559).
+  string added_at = 4;
 }
 
 message ListHospitalsRequest {

@@ -194,6 +194,10 @@ const listHospitalsOutputSchema = {
                 revision_id: {
                   type: "string",
                   description: "Opaque handle for this specific revision - pass back as revision_id to get_hospital_chargemaster_cost to price this revision instead of the hospital's latest one."
+                },
+                added_at: {
+                  type: "string",
+                  description: "ISO-8601 UTC timestamp of when medprice itself ingested this revision (server-set at insert time) - not derived from revision_date/last_updated_on, which reflects the source file's own self-reported update date and can lag well behind actual ingestion. Useful for sorting/highlighting by 'recently added to medprice' rather than 'recently updated by the hospital'."
                 }
               }
             }
@@ -358,7 +362,7 @@ const toolDefinitions = {
   list_hospitals: {
     name: "list_hospitals",
     title: "List supported hospitals",
-    description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque handle), EIN, name, structured_locations (addresses with geocoded coordinates where available), last_updated_on, and revision history (with per-revision has_payer_data and revision_id). Defaults to returning the entire registry (currently a few hundred hospitals) in one call. If the response's next_page_token is non-empty, the result set was truncated: call this tool again passing that exact value as page_token to get the next page, and keep doing so until next_page_token is empty - do not stop after one page and conclude the list is complete. The response's total_count field (total across all pages) can be compared against how many hospitals you've accumulated so far as a completeness check, e.g. before answering questions like 'does medprice.ai cover any hospitals in Iowa'.",
+    description: "Returns the hospitals supported by the medprice.ai API, with their hospital_id (opaque handle), EIN, name, structured_locations (addresses with geocoded coordinates where available), last_updated_on, and revision history (with per-revision has_payer_data, revision_id, and added_at - when medprice itself ingested that revision, as opposed to revision_date's source-file-reported update date). Defaults to returning the entire registry (currently a few hundred hospitals) in one call. If the response's next_page_token is non-empty, the result set was truncated: call this tool again passing that exact value as page_token to get the next page, and keep doing so until next_page_token is empty - do not stop after one page and conclude the list is complete. The response's total_count field (total across all pages) can be compared against how many hospitals you've accumulated so far as a completeness check, e.g. before answering questions like 'does medprice.ai cover any hospitals in Iowa'.",
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
