@@ -8,7 +8,7 @@
     "@grpc/proto-loader": "^0.8.1",
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "zod": "^4.4.3"
   },
