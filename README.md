@@ -34,7 +34,7 @@ The assistant will call `list_hospitals` to find the hospital's ID, then call `g
   "hospital_id": "3f9a1c2b8e4d5f6a7b8c9d0e1f2a3b4c",
   "code_type": "MS-DRG",
   "code": "652",
-  "methodology": "fee schedule"
+  "methodologies": ["fee schedule"]
 }
 ```
 
@@ -44,21 +44,28 @@ and returns:
 {
   "hospital": "MEDICAL CITY ALLIANCE",
   "found": true,
-  "cost": {
-    "code_type": "MS-DRG",
-    "code": "652",
-    "min": "26851.11",
-    "max": "190885.00",
-    "avg": "34387.70",
-    "median": "28084.07",
-    "std_dev": "13735.94"
-  },
-  "description": {
-    "hospital_name": "MEDICAL CITY ALLIANCE",
-    "location": "3101 N Tarrant Pkwy, Fort Worth, TX, 76177",
-    "code_description": "KIDNEY TRANSPLANT",
-    "methodology_note": "fee schedule"
-  }
+  "hospital_id": "3f9a1c2b8e4d5f6a7b8c9d0e1f2a3b4c",
+  "results": [
+    {
+      "methodology": "fee schedule",
+      "found": true,
+      "cost": {
+        "code_type": "MS-DRG",
+        "code": "652",
+        "min": "26851.11",
+        "max": "190885.00",
+        "avg": "34387.70",
+        "median": "28084.07",
+        "std_dev": "13735.94"
+      },
+      "description": {
+        "hospital_name": "MEDICAL CITY ALLIANCE",
+        "location": "3101 N Tarrant Pkwy, Fort Worth, TX, 76177",
+        "code_description": "KIDNEY TRANSPLANT",
+        "methodology_note": "fee schedule"
+      }
+    }
+  ]
 }
 ```
 
@@ -76,8 +83,10 @@ Each hospital's `revisions` array now includes a `revision_id` per revision (in 
 - **`hospital_id`** (required) — opaque hospital identifier from `list_hospitals`.
 - **`code_type`** (required) — code system, e.g. `APR-DRG`, `CDM`, `CPT`, `HCPCS`, `MS-DRG`, `RC`. Hospitals may also support additional proprietary code types.
 - **`code`** (required) — the billing/chargemaster code.
-- **`methodology`** (optional) — one of `case rate`, `fee schedule`, `other`, `percent of total billed charges`, `per diem`. Omit to aggregate across all methodologies.
+- **`methodologies`** (optional) — array of `case rate`, `fee schedule`, `other`, `percent of total billed charges`, `per diem`. One result per entry, in request order, each with its own `found`/`cost`/`description`. Omit or pass an empty array to get a single aggregate result across all methodologies.
 - **`revision_id`** (optional) — a `revision_id` from `list_hospitals`, to price that specific past revision instead of the hospital's latest one.
+
+Returns `hospital`, `found` (true if at least one entry in `results` was found), `hospital_id`, and `results` — one entry per requested methodology (or one aggregate entry when `methodologies` is omitted), each shaped like `{ methodology, found, cost, description }`.
 
 #### `list_hospital_code_costs`
 
@@ -85,11 +94,11 @@ Like `get_hospital_chargemaster_cost`, but returns one result per hospital that 
 
 - **`code_type`** (required) — same as above.
 - **`code`** (required) — same as above.
-- **`methodology`** (optional) — same as above.
+- **`methodology`** (optional) — single methodology string, same options as above. Unlike `get_hospital_chargemaster_cost`, this filter stays singular — it still only aggregates or narrows to one methodology, it doesn't fan out to multiple `results` entries per hospital.
 - **`page_size`** (optional) — maximum number of results to return. Defaults to 500 (every matching hospital in one call at the current registry size), capped at 500.
 - **`page_token`** (optional) — opaque token from a previous response's `next_page_token`, for pagination. If `next_page_token` is non-empty, keep calling with it until it's empty rather than assuming one page is the full list.
 
-Returns `results` (each shaped like a `get_hospital_chargemaster_cost` response, plus a `hospital_id` to link back to `list_hospitals`/`get_hospital_chargemaster_cost`) and `next_page_token`. Only hospitals with a matching entry (their latest revision) are included — there are no `found: false` entries.
+Returns `results` (each hospital shaped like a `get_hospital_chargemaster_cost` response — `hospital`, `found`, `hospital_id`, and a `results` array with exactly one entry given the singular `methodology` filter) and `next_page_token`. Only hospitals with a matching entry (their latest revision) are included — there are no `found: false` entries.
 
 #### `list_code_types`
 
