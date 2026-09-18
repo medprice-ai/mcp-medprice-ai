@@ -41,16 +41,16 @@ function stripSyntheticOneofs(value: unknown): unknown {
   )
 }
 
-const hospitalChargemasterCostOutputSchema = {
+const methodologyCostResultSchema = {
   type: "object",
   properties: {
-    hospital: {
+    methodology: {
       type: "string",
-      description: "Hospital name returned by the MedPrice AI backend."
+      description: "Methodology this entry is scoped to. Empty when aggregated across all methodologies (the request's methodology filter was left empty)."
     },
     found: {
       type: "boolean",
-      description: "Whether a matching chargemaster cost record was found."
+      description: "Whether a matching chargemaster cost record was found for this methodology."
     },
     cost: {
       type: "object",
@@ -76,6 +76,29 @@ const hospitalChargemasterCostOutputSchema = {
   }
 }
 
+const hospitalChargemasterCostOutputSchema = {
+  type: "object",
+  properties: {
+    hospital: {
+      type: "string",
+      description: "Hospital name returned by the MedPrice AI backend."
+    },
+    found: {
+      type: "boolean",
+      description: "True if at least one entry in results was found."
+    },
+    hospital_id: {
+      type: "string",
+      description: "Opaque hospital identifier to use with get_hospital_chargemaster_cost or list_hospitals."
+    },
+    results: {
+      type: "array",
+      description: "One entry per requested methodology, in request order - or, when the methodologies filter was left empty, exactly one aggregate entry.",
+      items: methodologyCostResultSchema
+    }
+  }
+}
+
 const hospitalCostResultSchema = {
   type: "object",
   properties: {
@@ -85,32 +108,16 @@ const hospitalCostResultSchema = {
     },
     found: {
       type: "boolean",
-      description: "Whether a matching chargemaster cost record was found."
-    },
-    cost: {
-      type: "object",
-      properties: {
-        code_type: { type: "string" },
-        code: { type: "string" },
-        min: { type: "string" },
-        max: { type: "string" },
-        avg: { type: "string" },
-        median: { type: "string" },
-        std_dev: { type: "string" }
-      }
-    },
-    description: {
-      type: "object",
-      properties: {
-        hospital_name: { type: "string" },
-        location: { type: "string" },
-        code_description: { type: "string" },
-        methodology_note: { type: "string" }
-      }
+      description: "True if at least one entry in results was found."
     },
     hospital_id: {
       type: "string",
       description: "Opaque hospital identifier to use with get_hospital_chargemaster_cost or list_hospitals."
+    },
+    results: {
+      type: "array",
+      description: "One entry per requested methodology, in request order - or, when the methodology filter was left empty, exactly one aggregate entry.",
+      items: methodologyCostResultSchema
     }
   }
 }
@@ -339,16 +346,19 @@ const toolDefinitions = {
           description: "Code system the chargemaster/billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC. Hospitals may also support additional proprietary code types not listed here."
         },
         code: { type: "string" },
-        methodology: {
-          type: "string",
-          enum: [
-            "case rate",
-            "fee schedule",
-            "other",
-            "percent of total billed charges",
-            "per diem"
-          ],
-          description: "Pricing methodology. Omit to aggregate across all methodologies."
+        methodologies: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: [
+              "case rate",
+              "fee schedule",
+              "other",
+              "percent of total billed charges",
+              "per diem"
+            ]
+          },
+          description: "Pricing methodologies to price, one result per entry in request order. Omit or pass an empty array to get a single aggregate result across all methodologies."
         },
         revision_id: {
           type: "string",
@@ -507,7 +517,7 @@ function createMcpServer(): Server {
           hospital_id: z.string(),
           code_type: z.string(),
           code: z.string(),
-          methodology: z.string().optional(),
+          methodologies: z.array(z.string()).optional(),
           revision_id: z.string().optional()
         }).parse(request.params.arguments)
 
@@ -518,7 +528,7 @@ function createMcpServer(): Server {
         try {
           response = await new Promise((resolve, reject) => {
             client.GetHospitalCodeCost(
-              { hospital_id: args.hospital_id, code_type: args.code_type, code: args.code, methodology: args.methodology ?? "", revision_id: args.revision_id ?? "" },
+              { hospital_id: args.hospital_id, code_type: args.code_type, code: args.code, methodologies: args.methodologies ?? [], revision_id: args.revision_id ?? "" },
               (err: any, resp: any) => {
                 if (err) reject(err)
                 else resolve(resp)

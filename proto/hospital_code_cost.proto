@@ -21,8 +21,18 @@ message HospitalCodeCostRequest {
   string code_type = 2;
   // e.g. "652"
   string code = 3;
-  // Methodology db string, e.g. "case rate". Empty means "all methodologies".
-  string methodology = 4;
+  // Methodology db strings to price, e.g. ["case rate", "per diem"] - see
+  // core.api.Methodology.knownMethodologies. Empty (the common case) means
+  // "aggregate across all methodologies", returning exactly one result
+  // (methodology left empty) - same as the old singular empty-string
+  // convention this field replaces (issue #627). A non-empty list returns
+  // one entry per requested methodology, in request order, each with
+  // found=false when this hospital didn't report that methodology for this
+  // code, rather than omitting it - letting a caller request every known
+  // methodology in one call instead of the 1-aggregate-plus-5-per-methodology
+  // fan-out this replaces. Every element must be one of the known db
+  // strings; an unrecognized one is rejected with INVALID_ARGUMENT.
+  repeated string methodologies = 4;
   // Optional. Empty (default) resolves hospital_id to its latest revision,
   // same as before this field existed. When set, must be one of the
   // revision_ids returned for this hospital_id under
@@ -48,17 +58,33 @@ message HospitalDescription {
   string methodology_note = 4;
 }
 
-message HospitalCostResult {
-  string hospital = 1;
+message MethodologyCostResult {
+  // Methodology db string this entry is scoped to, e.g. "case rate" - see
+  // core.api.Methodology. Empty when aggregated across all methodologies
+  // (the request's methodology filter, singular or repeated, was left
+  // empty).
+  string methodology = 1;
   // proto3 "optional" gives this scalar field explicit presence, so JSON
   // marshaling (e.g. grpcurl) always emits it, even when false.
   optional bool found = 2;
   CodeCostStatsMessage cost = 3;
   HospitalDescription description = 4;
+}
+
+message HospitalCostResult {
+  string hospital = 1;
+  // True if at least one entry in `results` was found.
+  optional bool found = 2;
   // Opaque handle backed by public.hospital.id, same convention as
   // HospitalRecord.hospital_id - lets a client link this result back to a
   // hospital detail page without a separate ListHospitals lookup.
-  string hospital_id = 5;
+  string hospital_id = 3;
+  // One entry per requested methodology, in request order (see
+  // HospitalCodeCostRequest.methodologies) - or, for ListHospitalCodeCosts
+  // (whose methodology filter stays singular) and an empty methodology
+  // filter, exactly one entry. Always non-empty for a resolved hospital -
+  // see issue #627.
+  repeated MethodologyCostResult results = 4;
 }
 
 message ListHospitalCodeCostsRequest {
@@ -153,7 +179,12 @@ message ListCodesResponse {
 }
 
 service HospitalCodeCostService {
-  // Returns cost stats for the single hospital identified by hospital_id.
+  // Returns cost stats for the single hospital identified by hospital_id -
+  // one result per requested methodology (HospitalCodeCostRequest.methodologies),
+  // or one aggregate result when that filter is left empty. Requesting
+  // several methodologies in one call avoids the 6x
+  // (1-aggregate-plus-5-per-methodology) fan-out a methodology-breakdown
+  // page previously needed (issue #627).
   rpc GetHospitalCodeCost (HospitalCodeCostRequest) returns (HospitalCostResult);
   // Returns cost stats for every hospital with a matching chargemaster entry
   // for (code_type, code), paginated - see issue #240.

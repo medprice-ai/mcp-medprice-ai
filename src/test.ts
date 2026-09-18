@@ -49,7 +49,7 @@ client.GetHospitalCodeCost(
 
     code: "652",
 
-    methodology: ""
+    methodologies: []
 
   },
 
