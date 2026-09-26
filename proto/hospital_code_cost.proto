@@ -49,6 +49,23 @@ message CodeCostStatsMessage {
   string avg = 5;
   string median = 6;
   string std_dev = 7;
+  // Sum, across every payer row contributing to this stat, of CMS's
+  // "Count of Allowed Amounts" (see core.api.CountOfAllowedAmounts) - a
+  // range, not a single number, because CMS's spec de-identifies a
+  // 1-10-remittance count into the literal string "1 through 10" rather
+  // than reporting the real value (issue #719). sample_count_sum_min sums
+  // 1 for each such de-identified row (its known lower bound);
+  // sample_count_sum_max sums 10 for each (its known upper bound). Every
+  // other contributing row (an exact count, or a literal 0) contributes the
+  // same value to both. A hospital reporting no sample_count data at all
+  // for this code yields 0/0/true here - indistinguishable from a genuine
+  // all-zero result, since CMS's spec allows both.
+  int64 sample_count_sum_min = 8;
+  int64 sample_count_sum_max = 9;
+  // True iff sample_count_sum_min == sample_count_sum_max, i.e. every
+  // contributing row was an exact count (or 0) - no de-identified
+  // "1 through 10" row narrowed this to a range.
+  bool sample_count_exact = 10;
 }
 
 message HospitalDescription {
