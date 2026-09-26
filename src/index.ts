@@ -41,6 +41,41 @@ function stripSyntheticOneofs(value: unknown): unknown {
   )
 }
 
+const codeCostStatsSchema = {
+  type: "object",
+  properties: {
+    code_type: { type: "string" },
+    code: { type: "string" },
+    min: { type: "string" },
+    max: { type: "string" },
+    avg: { type: "string" },
+    median: { type: "string" },
+    std_dev: { type: "string" },
+    sample_count_sum_min: {
+      type: "integer",
+      description: "Lower bound on the summed CMS sample-remittance count across contributing payer rows. Equal to sample_count_sum_max unless a de-identified '1 through 10' row narrowed it to a range."
+    },
+    sample_count_sum_max: {
+      type: "integer",
+      description: "Upper bound on the summed CMS sample-remittance count across contributing payer rows. Equal to sample_count_sum_min unless a de-identified '1 through 10' row narrowed it to a range."
+    },
+    sample_count_exact: {
+      type: "boolean",
+      description: "True iff sample_count_sum_min == sample_count_sum_max, i.e. no contributing row was a de-identified '1 through 10' range."
+    }
+  }
+}
+
+const hospitalDescriptionSchema = {
+  type: "object",
+  properties: {
+    hospital_name: { type: "string" },
+    location: { type: "string" },
+    code_description: { type: "string" },
+    methodology_note: { type: "string" }
+  }
+}
+
 const methodologyCostResultSchema = {
   type: "object",
   properties: {
@@ -52,27 +87,8 @@ const methodologyCostResultSchema = {
       type: "boolean",
       description: "Whether a matching chargemaster cost record was found for this methodology."
     },
-    cost: {
-      type: "object",
-      properties: {
-        code_type: { type: "string" },
-        code: { type: "string" },
-        min: { type: "string" },
-        max: { type: "string" },
-        avg: { type: "string" },
-        median: { type: "string" },
-        std_dev: { type: "string" }
-      }
-    },
-    description: {
-      type: "object",
-      properties: {
-        hospital_name: { type: "string" },
-        location: { type: "string" },
-        code_description: { type: "string" },
-        methodology_note: { type: "string" }
-      }
-    }
+    cost: codeCostStatsSchema,
+    description: hospitalDescriptionSchema
   }
 }
 

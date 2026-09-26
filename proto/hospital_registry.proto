@@ -107,6 +107,29 @@ message ListHospitalsResponse {
   int32 total_count = 3;
 }
 
+message ResolveLegacyHospitalIdRequest {
+  // The pre-#494 gRPC-exposed hospital_id: public.hospital.id's raw
+  // auto-increment PK, stringified. Only relevant for redirecting requests
+  // built from hospital_id values handed out before #494/#496 switched
+  // hospital_id to a stable hash - new callers should never construct this
+  // themselves.
+  int64 legacy_hospital_id = 1;
+}
+
+message ResolveLegacyHospitalIdResponse {
+  // Current stable hospital_id for this legacy id. Empty if
+  // legacy_hospital_id doesn't match any hospital (NOT_FOUND is not used
+  // here - an unknown legacy id is an expected, common case for an
+  // old/malformed link, not an error).
+  string hospital_id = 1;
+}
+
 service HospitalRegistryService {
   rpc ListHospitals (ListHospitalsRequest) returns (ListHospitalsResponse);
+  // Compat lookup for URLs built before #494/#496 replaced the raw
+  // public.hospital.id PK with a stable hash as the gRPC-exposed
+  // hospital_id - lets a caller (medprice-ai-web) resolve an old numeric id
+  // extracted from a stale link to the hospital's current hospital_id, so it
+  // can redirect to the canonical URL instead of 404ing.
+  rpc ResolveLegacyHospitalId (ResolveLegacyHospitalIdRequest) returns (ResolveLegacyHospitalIdResponse);
 }
