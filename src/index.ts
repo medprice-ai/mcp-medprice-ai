@@ -279,6 +279,18 @@ const listCodesOutputSchema = {
           hospital_count: {
             type: "integer",
             description: "Distinct hospitals reporting this code (latest revision only)."
+          },
+          total_sample_count_min: {
+            type: "integer",
+            description: "Lower bound on the summed CMS sample-remittance count across every reporting hospital's contributing payer rows. Equal to total_sample_count_max unless a de-identified '1 through 10' row narrowed it to a range."
+          },
+          total_sample_count_max: {
+            type: "integer",
+            description: "Upper bound on the summed CMS sample-remittance count across every reporting hospital's contributing payer rows. Equal to total_sample_count_min unless a de-identified '1 through 10' row narrowed it to a range."
+          },
+          total_sample_count_exact: {
+            type: "boolean",
+            description: "True iff total_sample_count_min == total_sample_count_max, i.e. no contributing hospital's sample_count was a de-identified '1 through 10' range."
           }
         }
       }
@@ -491,8 +503,13 @@ const toolDefinitions = {
         },
         sort: {
           type: "string",
-          enum: ["CODE_SORT_UNSPECIFIED", "CODE_SORT_HOSPITAL_COUNT_DESC"],
-          description: "Ordering for the returned codes. CODE_SORT_UNSPECIFIED (default) sorts code-alphabetical. CODE_SORT_HOSPITAL_COUNT_DESC sorts most-hospitals-reporting first, for pre-sorted 'top codes' pages."
+          enum: [
+            "CODE_SORT_UNSPECIFIED",
+            "CODE_SORT_HOSPITAL_COUNT_DESC",
+            "CODE_SORT_SAMPLE_COUNT_DESC",
+            "CODE_SORT_CODE_DESC"
+          ],
+          description: "Ordering for the returned codes. CODE_SORT_UNSPECIFIED (default) sorts code-alphabetical. CODE_SORT_HOSPITAL_COUNT_DESC sorts most-hospitals-reporting first, for pre-sorted 'top codes' pages. CODE_SORT_SAMPLE_COUNT_DESC sorts by largest pricing sample size first (total_sample_count_max) - ranks by how many billing records actually back a code's pricing, rather than by how many hospitals merely report it. CODE_SORT_CODE_DESC is code-alphabetical, reverse order."
         }
       },
       required: ["code_type"]
@@ -682,7 +699,12 @@ function createMcpServer(): Server {
           code_type: z.string(),
           page_size: z.number().int().optional(),
           page_token: z.string().optional(),
-          sort: z.enum(["CODE_SORT_UNSPECIFIED", "CODE_SORT_HOSPITAL_COUNT_DESC"]).optional()
+          sort: z.enum([
+            "CODE_SORT_UNSPECIFIED",
+            "CODE_SORT_HOSPITAL_COUNT_DESC",
+            "CODE_SORT_SAMPLE_COUNT_DESC",
+            "CODE_SORT_CODE_DESC"
+          ]).optional()
         }).parse(request.params.arguments)
 
         log("INFO", "grpc request", { tool: "list_codes", code_type: args.code_type })

@@ -161,6 +161,13 @@ enum CodeSort {
   // /codes/[codeType] page) get pre-sorted "top codes" pages in one round
   // trip instead of fetching every page and sorting client-side (#399).
   CODE_SORT_HOSPITAL_COUNT_DESC = 1;
+  // Largest pricing sample size first (CodeSummary.total_sample_count_max)
+  // - ranks by how many billing records actually back a code's pricing,
+  // rather than by how many hospitals merely report it (#818).
+  CODE_SORT_SAMPLE_COUNT_DESC = 2;
+  // Code-alphabetical, reverse order - the mirror image of the default
+  // CODE_SORT_UNSPECIFIED ordering (#822).
+  CODE_SORT_CODE_DESC = 3;
 }
 
 message ListCodesRequest {
@@ -185,6 +192,16 @@ message CodeSummary {
   // caller decide what's worth a page/link for, rather than the server
   // imposing a fixed threshold (see issue #286).
   int32 hospital_count = 3;
+  // Sum of every reporting hospital's sample_count_sum_min (see
+  // CodeCostStatsMessage), as a [total_sample_count_min,
+  // total_sample_count_max] range - same de-identified-range semantics as
+  // CodeCostStatsMessage's fields (issue #818).
+  int64 total_sample_count_min = 4;
+  int64 total_sample_count_max = 5;
+  // True iff total_sample_count_min == total_sample_count_max, i.e. every
+  // contributing hospital's sample_count was an exact count rather than a
+  // de-identified range.
+  bool total_sample_count_exact = 6;
 }
 
 message ListCodesResponse {
