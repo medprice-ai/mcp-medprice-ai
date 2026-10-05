@@ -138,6 +138,17 @@ const hospitalCostResultSchema = {
   }
 }
 
+const batchHospitalChargemasterCostOutputSchema = {
+  type: "object",
+  properties: {
+    results: {
+      type: "array",
+      description: "One entry per requested code, in request order - found=false (not omitted) when this hospital has no data for that code.",
+      items: hospitalCostResultSchema
+    }
+  }
+}
+
 const listHospitalCodeCostsOutputSchema = {
   type: "object",
   properties: {
@@ -291,6 +302,14 @@ const listCodesOutputSchema = {
           total_sample_count_exact: {
             type: "boolean",
             description: "True iff total_sample_count_min == total_sample_count_max, i.e. no contributing hospital's sample_count was a de-identified '1 through 10' range."
+          },
+          code_type: {
+            type: "string",
+            description: "This code's type, e.g. \"CPT\". Always set - distinguishes hits when query was searched across code types (code_type left empty in the request)."
+          },
+          friendly_description: {
+            type: "string",
+            description: "LLM-normalized, human-readable description. Empty when not yet backfilled - fall back to raw_description."
           }
         }
       }
@@ -397,6 +416,60 @@ const toolDefinitions = {
     },
     outputSchema: hospitalChargemasterCostOutputSchema
   },
+  batch_get_hospital_chargemaster_cost: {
+    name: "batch_get_hospital_chargemaster_cost",
+    title: "Batch get hospital chargemaster costs",
+    description: "Looks up cost stats for several (code_type, code) pairs at one hospital (identified by hospital_id) in a single call - the batch counterpart to get_hospital_chargemaster_cost. Use this instead of calling get_hospital_chargemaster_cost once per code when pricing a fixed set of codes at one hospital (e.g. cross-linking a curated list of procedures on a hospital's page). Capped at 100 codes per call; a request over that is rejected with INVALID_ARGUMENT rather than silently truncated.",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false
+    },
+    inputSchema: {
+      type: "object",
+      properties: {
+        hospital_id: {
+          type: "string",
+          description: "Opaque hospital identifier from list_hospitals."
+        },
+        codes: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              code_type: {
+                type: "string",
+                description: "Code system the chargemaster/billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC. Hospitals may also support additional proprietary code types not listed here."
+              },
+              code: { type: "string" },
+              methodologies: {
+                type: "array",
+                items: {
+                  type: "string",
+                  enum: [
+                    "case rate",
+                    "fee schedule",
+                    "other",
+                    "percent of total billed charges",
+                    "per diem"
+                  ]
+                },
+                description: "Pricing methodologies to price for this code, one result per entry in request order. Omit or pass an empty array to get a single aggregate result across all methodologies for this code."
+              }
+            },
+            required: ["code_type", "code"]
+          },
+          description: "The (code_type, code) pairs to price at this hospital - up to 100 entries. Results come back in this same order."
+        },
+        revision_id: {
+          type: "string",
+          description: "Optional. A revision_id from list_hospitals' per-hospital revisions array, to price that specific past revision instead of the hospital's latest one, applied to every code in this batch. Omit to use the latest revision."
+        }
+      },
+      required: ["hospital_id", "codes"]
+    },
+    outputSchema: batchHospitalChargemasterCostOutputSchema
+  },
   list_hospitals: {
     name: "list_hospitals",
     title: "List supported hospitals",
@@ -480,7 +553,7 @@ const toolDefinitions = {
   list_codes: {
     name: "list_codes",
     title: "List billing codes for a code type",
-    description: "Returns every distinct code catalogued under a given code_type, paginated, with each code's raw chargemaster description and the number of hospitals reporting it. Use this to discover which codes exist under a code system (e.g. all CPT codes) before looking up prices with get_hospital_chargemaster_cost or list_hospital_code_costs.",
+    description: "Returns every distinct code catalogued under a given code_type, paginated, with each code's raw chargemaster description and the number of hospitals reporting it. Use this to discover which codes exist under a code system (e.g. all CPT codes) before looking up prices with get_hospital_chargemaster_cost or list_hospital_code_costs. Pass query to text-search codes/descriptions instead of listing a whole code_type.",
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -491,7 +564,7 @@ const toolDefinitions = {
       properties: {
         code_type: {
           type: "string",
-          description: "Code system to list codes for, e.g. \"CPT\". From list_code_types."
+          description: "Code system to list codes for, e.g. \"CPT\". From list_code_types. May be left empty when query is set, to search across code types (excluding hospital-specific CDM and LOCAL codes) - CodeSummary.code_type tells the hits apart in that case."
         },
         page_size: {
           type: "integer",
@@ -499,7 +572,7 @@ const toolDefinitions = {
         },
         page_token: {
           type: "string",
-          description: "Opaque token from a previous list_codes response. Omit for the first page."
+          description: "Opaque token from a previous list_codes response. Omit for the first page. Only valid with the same query/code_type/sort it was issued for."
         },
         sort: {
           type: "string",
@@ -507,12 +580,17 @@ const toolDefinitions = {
             "CODE_SORT_UNSPECIFIED",
             "CODE_SORT_HOSPITAL_COUNT_DESC",
             "CODE_SORT_SAMPLE_COUNT_DESC",
-            "CODE_SORT_CODE_DESC"
+            "CODE_SORT_CODE_DESC",
+            "CODE_SORT_RELEVANCE"
           ],
-          description: "Ordering for the returned codes. CODE_SORT_UNSPECIFIED (default) sorts code-alphabetical. CODE_SORT_HOSPITAL_COUNT_DESC sorts most-hospitals-reporting first, for pre-sorted 'top codes' pages. CODE_SORT_SAMPLE_COUNT_DESC sorts by largest pricing sample size first (total_sample_count_max) - ranks by how many billing records actually back a code's pricing, rather than by how many hospitals merely report it. CODE_SORT_CODE_DESC is code-alphabetical, reverse order."
+          description: "Ordering for the returned codes. CODE_SORT_UNSPECIFIED (default) sorts code-alphabetical. CODE_SORT_HOSPITAL_COUNT_DESC sorts most-hospitals-reporting first, for pre-sorted 'top codes' pages. CODE_SORT_SAMPLE_COUNT_DESC sorts by largest pricing sample size first (total_sample_count_max) - ranks by how many billing records actually back a code's pricing, rather than by how many hospitals merely report it. CODE_SORT_CODE_DESC is code-alphabetical, reverse order. CODE_SORT_RELEVANCE ranks best text match first (exact code, then code prefix, then description word-start, then description substring) and is only meaningful - and the default - when query is set; without a query it behaves like CODE_SORT_SAMPLE_COUNT_DESC."
+        },
+        query: {
+          type: "string",
+          description: "Case-insensitive text search: matches the code as a prefix, and substrings of the raw and friendly descriptions. Descriptions are only searched for queries of 4+ characters; shorter queries match the code prefix only. When set, code_type may be left empty to search across code types."
         }
       },
-      required: ["code_type"]
+      required: []
     },
     outputSchema: listCodesOutputSchema
   }
@@ -574,6 +652,52 @@ function createMcpServer(): Server {
         }
 
         log("INFO", "grpc response", { tool: "get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
+        const structuredContent = stripSyntheticOneofs(response)
+
+        return {
+          structuredContent,
+          content: [{
+            type: "text",
+            text: JSON.stringify(structuredContent, null, 2)
+          }]
+        }
+      }
+
+      if (request.params.name === "batch_get_hospital_chargemaster_cost") {
+        const args = z.object({
+          hospital_id: z.string(),
+          codes: z.array(z.object({
+            code_type: z.string(),
+            code: z.string(),
+            methodologies: z.array(z.string()).optional()
+          })).min(1),
+          revision_id: z.string().optional()
+        }).parse(request.params.arguments)
+
+        log("INFO", "grpc request", { tool: "batch_get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_count: args.codes.length })
+        const grpcStart = Date.now()
+
+        let response: unknown
+        try {
+          response = await new Promise((resolve, reject) => {
+            client.BatchGetHospitalCodeCost(
+              {
+                hospital_id: args.hospital_id,
+                codes: args.codes.map((c) => ({ code_type: c.code_type, code: c.code, methodologies: c.methodologies ?? [] })),
+                revision_id: args.revision_id ?? ""
+              },
+              (err: any, resp: any) => {
+                if (err) reject(err)
+                else resolve(resp)
+              }
+            )
+          })
+        } catch (err) {
+          log("ERROR", "grpc request failed", { tool: "batch_get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_count: args.codes.length, duration_ms: Date.now() - grpcStart, error: String(err) })
+          throw err
+        }
+
+        log("INFO", "grpc response", { tool: "batch_get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_count: args.codes.length, duration_ms: Date.now() - grpcStart })
         const structuredContent = stripSyntheticOneofs(response)
 
         return {
@@ -696,25 +820,27 @@ function createMcpServer(): Server {
 
       if (request.params.name === "list_codes") {
         const args = z.object({
-          code_type: z.string(),
+          code_type: z.string().optional(),
           page_size: z.number().int().optional(),
           page_token: z.string().optional(),
           sort: z.enum([
             "CODE_SORT_UNSPECIFIED",
             "CODE_SORT_HOSPITAL_COUNT_DESC",
             "CODE_SORT_SAMPLE_COUNT_DESC",
-            "CODE_SORT_CODE_DESC"
-          ]).optional()
+            "CODE_SORT_CODE_DESC",
+            "CODE_SORT_RELEVANCE"
+          ]).optional(),
+          query: z.string().optional()
         }).parse(request.params.arguments)
 
-        log("INFO", "grpc request", { tool: "list_codes", code_type: args.code_type })
+        log("INFO", "grpc request", { tool: "list_codes", code_type: args.code_type ?? "", query: args.query ?? "" })
         const grpcStart = Date.now()
 
         let response: unknown
         try {
           response = await new Promise((resolve, reject) => {
             client.ListCodes(
-              { code_type: args.code_type, page_size: args.page_size ?? 0, page_token: args.page_token ?? "", sort: args.sort ?? "CODE_SORT_UNSPECIFIED" },
+              { code_type: args.code_type ?? "", page_size: args.page_size ?? 0, page_token: args.page_token ?? "", sort: args.sort ?? "CODE_SORT_UNSPECIFIED", query: args.query ?? "" },
               (err: any, resp: any) => {
                 if (err) reject(err)
                 else resolve(resp)
@@ -722,11 +848,11 @@ function createMcpServer(): Server {
             )
           })
         } catch (err) {
-          log("ERROR", "grpc request failed", { tool: "list_codes", code_type: args.code_type, duration_ms: Date.now() - grpcStart, error: String(err) })
+          log("ERROR", "grpc request failed", { tool: "list_codes", code_type: args.code_type ?? "", query: args.query ?? "", duration_ms: Date.now() - grpcStart, error: String(err) })
           throw err
         }
 
-        log("INFO", "grpc response", { tool: "list_codes", code_type: args.code_type, duration_ms: Date.now() - grpcStart })
+        log("INFO", "grpc response", { tool: "list_codes", code_type: args.code_type ?? "", query: args.query ?? "", duration_ms: Date.now() - grpcStart })
         const structuredContent = stripSyntheticOneofs(response)
 
         return {
