@@ -291,6 +291,14 @@ const listCodesOutputSchema = {
           total_sample_count_exact: {
             type: "boolean",
             description: "True iff total_sample_count_min == total_sample_count_max, i.e. no contributing hospital's sample_count was a de-identified '1 through 10' range."
+          },
+          code_type: {
+            type: "string",
+            description: "This code's type, e.g. \"CPT\". Always set - distinguishes hits when query was searched across code types (code_type left empty in the request)."
+          },
+          friendly_description: {
+            type: "string",
+            description: "LLM-normalized, human-readable description. Empty when not yet backfilled - fall back to raw_description."
           }
         }
       }
@@ -480,7 +488,7 @@ const toolDefinitions = {
   list_codes: {
     name: "list_codes",
     title: "List billing codes for a code type",
-    description: "Returns every distinct code catalogued under a given code_type, paginated, with each code's raw chargemaster description and the number of hospitals reporting it. Use this to discover which codes exist under a code system (e.g. all CPT codes) before looking up prices with get_hospital_chargemaster_cost or list_hospital_code_costs.",
+    description: "Returns every distinct code catalogued under a given code_type, paginated, with each code's raw chargemaster description and the number of hospitals reporting it. Use this to discover which codes exist under a code system (e.g. all CPT codes) before looking up prices with get_hospital_chargemaster_cost or list_hospital_code_costs. Pass query to text-search codes/descriptions instead of listing a whole code_type.",
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -491,7 +499,7 @@ const toolDefinitions = {
       properties: {
         code_type: {
           type: "string",
-          description: "Code system to list codes for, e.g. \"CPT\". From list_code_types."
+          description: "Code system to list codes for, e.g. \"CPT\". From list_code_types. May be left empty when query is set, to search across code types (excluding hospital-specific CDM and LOCAL codes) - CodeSummary.code_type tells the hits apart in that case."
         },
         page_size: {
           type: "integer",
@@ -499,7 +507,7 @@ const toolDefinitions = {
         },
         page_token: {
           type: "string",
-          description: "Opaque token from a previous list_codes response. Omit for the first page."
+          description: "Opaque token from a previous list_codes response. Omit for the first page. Only valid with the same query/code_type/sort it was issued for."
         },
         sort: {
           type: "string",
@@ -507,12 +515,17 @@ const toolDefinitions = {
             "CODE_SORT_UNSPECIFIED",
             "CODE_SORT_HOSPITAL_COUNT_DESC",
             "CODE_SORT_SAMPLE_COUNT_DESC",
-            "CODE_SORT_CODE_DESC"
+            "CODE_SORT_CODE_DESC",
+            "CODE_SORT_RELEVANCE"
           ],
-          description: "Ordering for the returned codes. CODE_SORT_UNSPECIFIED (default) sorts code-alphabetical. CODE_SORT_HOSPITAL_COUNT_DESC sorts most-hospitals-reporting first, for pre-sorted 'top codes' pages. CODE_SORT_SAMPLE_COUNT_DESC sorts by largest pricing sample size first (total_sample_count_max) - ranks by how many billing records actually back a code's pricing, rather than by how many hospitals merely report it. CODE_SORT_CODE_DESC is code-alphabetical, reverse order."
+          description: "Ordering for the returned codes. CODE_SORT_UNSPECIFIED (default) sorts code-alphabetical. CODE_SORT_HOSPITAL_COUNT_DESC sorts most-hospitals-reporting first, for pre-sorted 'top codes' pages. CODE_SORT_SAMPLE_COUNT_DESC sorts by largest pricing sample size first (total_sample_count_max) - ranks by how many billing records actually back a code's pricing, rather than by how many hospitals merely report it. CODE_SORT_CODE_DESC is code-alphabetical, reverse order. CODE_SORT_RELEVANCE ranks best text match first (exact code, then code prefix, then description word-start, then description substring) and is only meaningful - and the default - when query is set; without a query it behaves like CODE_SORT_SAMPLE_COUNT_DESC."
+        },
+        query: {
+          type: "string",
+          description: "Case-insensitive text search: matches the code as a prefix, and substrings of the raw and friendly descriptions. Descriptions are only searched for queries of 4+ characters; shorter queries match the code prefix only. When set, code_type may be left empty to search across code types."
         }
       },
-      required: ["code_type"]
+      required: []
     },
     outputSchema: listCodesOutputSchema
   }
@@ -696,25 +709,27 @@ function createMcpServer(): Server {
 
       if (request.params.name === "list_codes") {
         const args = z.object({
-          code_type: z.string(),
+          code_type: z.string().optional(),
           page_size: z.number().int().optional(),
           page_token: z.string().optional(),
           sort: z.enum([
             "CODE_SORT_UNSPECIFIED",
             "CODE_SORT_HOSPITAL_COUNT_DESC",
             "CODE_SORT_SAMPLE_COUNT_DESC",
-            "CODE_SORT_CODE_DESC"
-          ]).optional()
+            "CODE_SORT_CODE_DESC",
+            "CODE_SORT_RELEVANCE"
+          ]).optional(),
+          query: z.string().optional()
         }).parse(request.params.arguments)
 
-        log("INFO", "grpc request", { tool: "list_codes", code_type: args.code_type })
+        log("INFO", "grpc request", { tool: "list_codes", code_type: args.code_type ?? "", query: args.query ?? "" })
         const grpcStart = Date.now()
 
         let response: unknown
         try {
           response = await new Promise((resolve, reject) => {
             client.ListCodes(
-              { code_type: args.code_type, page_size: args.page_size ?? 0, page_token: args.page_token ?? "", sort: args.sort ?? "CODE_SORT_UNSPECIFIED" },
+              { code_type: args.code_type ?? "", page_size: args.page_size ?? 0, page_token: args.page_token ?? "", sort: args.sort ?? "CODE_SORT_UNSPECIFIED", query: args.query ?? "" },
               (err: any, resp: any) => {
                 if (err) reject(err)
                 else resolve(resp)
@@ -722,11 +737,11 @@ function createMcpServer(): Server {
             )
           })
         } catch (err) {
-          log("ERROR", "grpc request failed", { tool: "list_codes", code_type: args.code_type, duration_ms: Date.now() - grpcStart, error: String(err) })
+          log("ERROR", "grpc request failed", { tool: "list_codes", code_type: args.code_type ?? "", query: args.query ?? "", duration_ms: Date.now() - grpcStart, error: String(err) })
           throw err
         }
 
-        log("INFO", "grpc response", { tool: "list_codes", code_type: args.code_type, duration_ms: Date.now() - grpcStart })
+        log("INFO", "grpc response", { tool: "list_codes", code_type: args.code_type ?? "", query: args.query ?? "", duration_ms: Date.now() - grpcStart })
         const structuredContent = stripSyntheticOneofs(response)
 
         return {

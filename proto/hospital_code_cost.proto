@@ -41,6 +41,58 @@ message HospitalCodeCostRequest {
   string revision_id = 5;
 }
 
+// PROTOTYPE (#870): one (code_type, code) entry in a
+// HospitalCodeCostBatchRequest.
+message CodeRef {
+  // e.g. "MS-DRG"
+  string code_type = 1;
+  // e.g. "652"
+  string code = 2;
+  // Same convention/semantics as HospitalCodeCostRequest.methodologies -
+  // empty (the common case) means "aggregate across all methodologies" for
+  // this code, returning exactly one result; a non-empty list returns one
+  // entry per requested methodology for this code. Every element must be a
+  // known db string (see core.api.Methodology.knownMethodologies); an
+  // unrecognized one is rejected with INVALID_ARGUMENT.
+  repeated string methodologies = 3;
+}
+
+// PROTOTYPE (#870): batch counterpart to HospitalCodeCostRequest - prices
+// several (code_type, code) pairs for one hospital_id in a single RPC,
+// instead of one GetHospitalCodeCost call per code. Aimed at
+// medprice-ai-web's getProcedureCostPointsForHospital (lib/procedureCosts.ts),
+// which currently fires one GetHospitalCodeCost per entry in its ~36-entry
+// PROCEDURES pool on every hospital-detail-page ISR revalidation.
+// CodeRef.methodologies carries the same per-request methodology filter
+// HospitalCodeCostRequest.methodologies does, scoped per code - the common
+// empty-methodologies case (the page fan-out this replaces only ever wants
+// the aggregate) is served by one batched Parquet scan across every code in
+// the request (ParquetCodeCostReader.findCostsForCodes); a code that
+// requests 2+ methodologies falls back to one
+// ParquetCodeCostReader.findCostsByMethodology call for just that code
+// (the same GROUPING SETS query GetHospitalCodeCost's own multi-methodology
+// case uses) since batching a per-code methodology breakdown into one scan
+// isn't implemented yet.
+message HospitalCodeCostBatchRequest {
+  // Same convention as HospitalCodeCostRequest.hospital_id.
+  string hospital_id = 1;
+  // Capped at 100 entries (HospitalCodeCostServiceImpl.MaxBatchCodes) -
+  // rejected with INVALID_ARGUMENT above that, rather than silently
+  // truncated, since this is a public unauthenticated backend and an
+  // uncapped list would let a caller force an arbitrarily wide scan.
+  repeated CodeRef codes = 2;
+  // Same convention as HospitalCodeCostRequest.revision_id.
+  string revision_id = 3;
+}
+
+// PROTOTYPE (#870): one entry per requested CodeRef, in request order -
+// found=false (not omitted) when this hospital has no data for that code,
+// mirroring HospitalCodeCostRequest.methodologies' per-entry found
+// convention.
+message HospitalCodeCostBatchResponse {
+  repeated HospitalCostResult results = 1;
+}
+
 message CodeCostStatsMessage {
   string code_type = 1;
   string code = 2;
@@ -168,6 +220,13 @@ enum CodeSort {
   // Code-alphabetical, reverse order - the mirror image of the default
   // CODE_SORT_UNSPECIFIED ordering (#822).
   CODE_SORT_CODE_DESC = 3;
+  // Best text match first: exact code, then code prefix, then description
+  // word-start, then description substring; ties broken by
+  // total_sample_count_max DESC (#911). Only meaningful when
+  // ListCodesRequest.query is set, and is the default ordering in that case
+  // (an explicit non-relevance sort still applies to the matching rows).
+  // Without a query it behaves like CODE_SORT_SAMPLE_COUNT_DESC.
+  CODE_SORT_RELEVANCE = 4;
 }
 
 message ListCodesRequest {
@@ -180,6 +239,18 @@ message ListCodesRequest {
   string page_token = 3;
   // Defaults to CODE_SORT_UNSPECIFIED (code-alphabetical) - see #399.
   CodeSort sort = 4;
+  // Optional case-insensitive text search (#911): matches the code as a
+  // prefix, and substrings of raw_description and friendly_description.
+  // Descriptions are only searched for queries of 4+ characters; shorter
+  // queries match the code prefix only (a 1-3 character substring matches
+  // too many descriptions to rank fast enough for per-keystroke use).
+  // Blank/whitespace-only is treated as unset. When set, code_type may be
+  // left empty to search across code types (hospital-specific CDM and LOCAL
+  // codes are excluded from that cross-type search - name them in code_type
+  // to search them), and CodeSummary.code_type tells the hits apart.
+  // total_count counts matches only. page_token is only valid with the same
+  // query/code_type/sort it was issued for.
+  string query = 5;
 }
 
 message CodeSummary {
@@ -202,6 +273,14 @@ message CodeSummary {
   // contributing hospital's sample_count was an exact count rather than a
   // de-identified range.
   bool total_sample_count_exact = 6;
+  // The code's type (e.g. "CPT") - always set, and what disambiguates hits
+  // when ListCodesRequest.code_type is left empty for a cross-type search
+  // (#911).
+  string code_type = 7;
+  // LLM-normalized, human-readable description (#266) - empty when not yet
+  // backfilled; fall back to raw_description. Searched alongside
+  // raw_description by ListCodesRequest.query (#911).
+  string friendly_description = 8;
 }
 
 message ListCodesResponse {
@@ -220,6 +299,11 @@ service HospitalCodeCostService {
   // (1-aggregate-plus-5-per-methodology) fan-out a methodology-breakdown
   // page previously needed (issue #627).
   rpc GetHospitalCodeCost (HospitalCodeCostRequest) returns (HospitalCostResult);
+  // PROTOTYPE (#870): batch counterpart to GetHospitalCodeCost - prices
+  // several (code_type, code) pairs for one hospital in a single call,
+  // cutting the N-RPC fan-out a hospital-detail page's curated-procedure
+  // cross-linking currently needs down to one.
+  rpc BatchGetHospitalCodeCost (HospitalCodeCostBatchRequest) returns (HospitalCodeCostBatchResponse);
   // Returns cost stats for every hospital with a matching chargemaster entry
   // for (code_type, code), paginated - see issue #240.
   rpc ListHospitalCodeCosts (ListHospitalCodeCostsRequest) returns (ListHospitalCodeCostsResponse);
