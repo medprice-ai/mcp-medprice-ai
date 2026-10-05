@@ -138,6 +138,17 @@ const hospitalCostResultSchema = {
   }
 }
 
+const batchHospitalChargemasterCostOutputSchema = {
+  type: "object",
+  properties: {
+    results: {
+      type: "array",
+      description: "One entry per requested code, in request order - found=false (not omitted) when this hospital has no data for that code.",
+      items: hospitalCostResultSchema
+    }
+  }
+}
+
 const listHospitalCodeCostsOutputSchema = {
   type: "object",
   properties: {
@@ -405,6 +416,60 @@ const toolDefinitions = {
     },
     outputSchema: hospitalChargemasterCostOutputSchema
   },
+  batch_get_hospital_chargemaster_cost: {
+    name: "batch_get_hospital_chargemaster_cost",
+    title: "Batch get hospital chargemaster costs",
+    description: "Looks up cost stats for several (code_type, code) pairs at one hospital (identified by hospital_id) in a single call - the batch counterpart to get_hospital_chargemaster_cost. Use this instead of calling get_hospital_chargemaster_cost once per code when pricing a fixed set of codes at one hospital (e.g. cross-linking a curated list of procedures on a hospital's page). Capped at 100 codes per call; a request over that is rejected with INVALID_ARGUMENT rather than silently truncated.",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false
+    },
+    inputSchema: {
+      type: "object",
+      properties: {
+        hospital_id: {
+          type: "string",
+          description: "Opaque hospital identifier from list_hospitals."
+        },
+        codes: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              code_type: {
+                type: "string",
+                description: "Code system the chargemaster/billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC. Hospitals may also support additional proprietary code types not listed here."
+              },
+              code: { type: "string" },
+              methodologies: {
+                type: "array",
+                items: {
+                  type: "string",
+                  enum: [
+                    "case rate",
+                    "fee schedule",
+                    "other",
+                    "percent of total billed charges",
+                    "per diem"
+                  ]
+                },
+                description: "Pricing methodologies to price for this code, one result per entry in request order. Omit or pass an empty array to get a single aggregate result across all methodologies for this code."
+              }
+            },
+            required: ["code_type", "code"]
+          },
+          description: "The (code_type, code) pairs to price at this hospital - up to 100 entries. Results come back in this same order."
+        },
+        revision_id: {
+          type: "string",
+          description: "Optional. A revision_id from list_hospitals' per-hospital revisions array, to price that specific past revision instead of the hospital's latest one, applied to every code in this batch. Omit to use the latest revision."
+        }
+      },
+      required: ["hospital_id", "codes"]
+    },
+    outputSchema: batchHospitalChargemasterCostOutputSchema
+  },
   list_hospitals: {
     name: "list_hospitals",
     title: "List supported hospitals",
@@ -587,6 +652,52 @@ function createMcpServer(): Server {
         }
 
         log("INFO", "grpc response", { tool: "get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
+        const structuredContent = stripSyntheticOneofs(response)
+
+        return {
+          structuredContent,
+          content: [{
+            type: "text",
+            text: JSON.stringify(structuredContent, null, 2)
+          }]
+        }
+      }
+
+      if (request.params.name === "batch_get_hospital_chargemaster_cost") {
+        const args = z.object({
+          hospital_id: z.string(),
+          codes: z.array(z.object({
+            code_type: z.string(),
+            code: z.string(),
+            methodologies: z.array(z.string()).optional()
+          })).min(1),
+          revision_id: z.string().optional()
+        }).parse(request.params.arguments)
+
+        log("INFO", "grpc request", { tool: "batch_get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_count: args.codes.length })
+        const grpcStart = Date.now()
+
+        let response: unknown
+        try {
+          response = await new Promise((resolve, reject) => {
+            client.BatchGetHospitalCodeCost(
+              {
+                hospital_id: args.hospital_id,
+                codes: args.codes.map((c) => ({ code_type: c.code_type, code: c.code, methodologies: c.methodologies ?? [] })),
+                revision_id: args.revision_id ?? ""
+              },
+              (err: any, resp: any) => {
+                if (err) reject(err)
+                else resolve(resp)
+              }
+            )
+          })
+        } catch (err) {
+          log("ERROR", "grpc request failed", { tool: "batch_get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_count: args.codes.length, duration_ms: Date.now() - grpcStart, error: String(err) })
+          throw err
+        }
+
+        log("INFO", "grpc response", { tool: "batch_get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_count: args.codes.length, duration_ms: Date.now() - grpcStart })
         const structuredContent = stripSyntheticOneofs(response)
 
         return {
