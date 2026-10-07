@@ -291,17 +291,17 @@ const listCodesOutputSchema = {
             type: "integer",
             description: "Distinct hospitals reporting this code (latest revision only)."
           },
-          total_sample_count_min: {
+          sample_count_min: {
             type: "integer",
-            description: "Lower bound on the summed CMS sample-remittance count across every reporting hospital's contributing payer rows. Equal to total_sample_count_max unless a de-identified '1 through 10' row narrowed it to a range."
+            description: "Lower bound on the CMS sample-remittance count. By default (no hospital_id in the request) this sums every reporting hospital's contributing payer rows, network-wide; when the request scopes to a hospital_id, it's that one hospital's own sample count for this code instead. Equal to sample_count_max unless a de-identified '1 through 10' row narrowed it to a range."
           },
-          total_sample_count_max: {
+          sample_count_max: {
             type: "integer",
-            description: "Upper bound on the summed CMS sample-remittance count across every reporting hospital's contributing payer rows. Equal to total_sample_count_min unless a de-identified '1 through 10' row narrowed it to a range."
+            description: "Upper bound on the CMS sample-remittance count, same network-wide-vs-hospital-scoped convention as sample_count_min. Equal to sample_count_min unless a de-identified '1 through 10' row narrowed it to a range."
           },
-          total_sample_count_exact: {
+          sample_count_exact: {
             type: "boolean",
-            description: "True iff total_sample_count_min == total_sample_count_max, i.e. no contributing hospital's sample_count was a de-identified '1 through 10' range."
+            description: "True iff sample_count_min == sample_count_max, i.e. no contributing row was a de-identified '1 through 10' range."
           },
           code_type: {
             type: "string",
@@ -528,7 +528,11 @@ const toolDefinitions = {
         },
         page_token: {
           type: "string",
-          description: "Opaque token from a previous list_hospital_code_costs response's next_page_token field. Omit for the first page. Do not pass any other value (e.g. an offset or cursor you construct yourself) here."
+          description: "Opaque token from a previous list_hospital_code_costs response's next_page_token field. Omit for the first page. Only valid with the same code_type/code/methodology/min_sample_count it was issued for."
+        },
+        min_sample_count: {
+          type: "integer",
+          description: "Minimum pricing sample size: only return hospitals whose price is backed by at least this many billing records (compared against the de-identified range's lower bound, so a '1 through 10' row counts as 1). 0 (default) disables the filter. Pass 1 to exclude hospitals with no real sample data at all (most filings report 0/0, indistinguishable from a genuine zero). total_count and next_page_token describe the filtered set. Negative values are rejected."
         }
       },
       required: ["code_type", "code"]
@@ -553,7 +557,7 @@ const toolDefinitions = {
   list_codes: {
     name: "list_codes",
     title: "List billing codes for a code type",
-    description: "Returns every distinct code catalogued under a given code_type, paginated, with each code's raw chargemaster description and the number of hospitals reporting it. Use this to discover which codes exist under a code system (e.g. all CPT codes) before looking up prices with get_hospital_chargemaster_cost or list_hospital_code_costs. Pass query to text-search codes/descriptions instead of listing a whole code_type.",
+    description: "Returns every distinct code catalogued under a given code_type, paginated, with each code's raw chargemaster description and the number of hospitals reporting it. Use this to discover which codes exist under a code system (e.g. all CPT codes) before looking up prices with get_hospital_chargemaster_cost or list_hospital_code_costs. Pass query to text-search codes/descriptions instead of listing a whole code_type. Pass hospital_id to restrict results to codes that one hospital actually reports.",
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -583,11 +587,15 @@ const toolDefinitions = {
             "CODE_SORT_CODE_DESC",
             "CODE_SORT_RELEVANCE"
           ],
-          description: "Ordering for the returned codes. CODE_SORT_UNSPECIFIED (default) sorts code-alphabetical. CODE_SORT_HOSPITAL_COUNT_DESC sorts most-hospitals-reporting first, for pre-sorted 'top codes' pages. CODE_SORT_SAMPLE_COUNT_DESC sorts by largest pricing sample size first (total_sample_count_max) - ranks by how many billing records actually back a code's pricing, rather than by how many hospitals merely report it. CODE_SORT_CODE_DESC is code-alphabetical, reverse order. CODE_SORT_RELEVANCE ranks best text match first (exact code, then code prefix, then description word-start, then description substring) and is only meaningful - and the default - when query is set; without a query it behaves like CODE_SORT_SAMPLE_COUNT_DESC."
+          description: "Ordering for the returned codes. CODE_SORT_UNSPECIFIED (default) sorts code-alphabetical. CODE_SORT_HOSPITAL_COUNT_DESC sorts most-hospitals-reporting first, for pre-sorted 'top codes' pages. CODE_SORT_SAMPLE_COUNT_DESC sorts by largest network-wide pricing sample size first (sample_count_max, always network-wide regardless of hospital_id) - ranks by how many billing records actually back a code's pricing, rather than by how many hospitals merely report it. CODE_SORT_CODE_DESC is code-alphabetical, reverse order. CODE_SORT_RELEVANCE ranks best text match first (exact code, then code prefix, then description word-start, then description substring), ties broken by network-wide sample count descending, and is only meaningful - and the default - when query is set; without a query it behaves like CODE_SORT_SAMPLE_COUNT_DESC."
         },
         query: {
           type: "string",
           description: "Case-insensitive text search: matches the code as a prefix, and substrings of the raw and friendly descriptions. Descriptions are only searched for queries of 4+ characters; shorter queries match the code prefix only. When set, code_type may be left empty to search across code types."
+        },
+        hospital_id: {
+          type: "string",
+          description: "Optional hospital scoping (a hospital_id from list_hospitals): restricts results to codes that hospital actually reports on its latest revision, and makes sample_count_min/max/exact that hospital's own sample size for the code rather than the network-wide total. Unset (default) is network-wide. page_token is only valid with the same hospital_id it was issued for, same as query/code_type/sort."
         }
       },
       required: []
@@ -752,7 +760,8 @@ function createMcpServer(): Server {
           code: z.string(),
           methodology: z.string().optional(),
           page_size: z.number().int().optional(),
-          page_token: z.string().optional()
+          page_token: z.string().optional(),
+          min_sample_count: z.number().int().optional()
         }).parse(request.params.arguments)
 
         log("INFO", "grpc request", { tool: "list_hospital_code_costs", code_type: args.code_type, code: args.code })
@@ -762,7 +771,7 @@ function createMcpServer(): Server {
         try {
           response = await new Promise((resolve, reject) => {
             client.ListHospitalCodeCosts(
-              { code_type: args.code_type, code: args.code, methodology: args.methodology ?? "", page_size: args.page_size ?? 0, page_token: args.page_token ?? "" },
+              { code_type: args.code_type, code: args.code, methodology: args.methodology ?? "", page_size: args.page_size ?? 0, page_token: args.page_token ?? "", min_sample_count: args.min_sample_count ?? 0 },
               (err: any, resp: any) => {
                 if (err) reject(err)
                 else resolve(resp)
@@ -830,7 +839,8 @@ function createMcpServer(): Server {
             "CODE_SORT_CODE_DESC",
             "CODE_SORT_RELEVANCE"
           ]).optional(),
-          query: z.string().optional()
+          query: z.string().optional(),
+          hospital_id: z.string().optional()
         }).parse(request.params.arguments)
 
         log("INFO", "grpc request", { tool: "list_codes", code_type: args.code_type ?? "", query: args.query ?? "" })
@@ -840,7 +850,7 @@ function createMcpServer(): Server {
         try {
           response = await new Promise((resolve, reject) => {
             client.ListCodes(
-              { code_type: args.code_type ?? "", page_size: args.page_size ?? 0, page_token: args.page_token ?? "", sort: args.sort ?? "CODE_SORT_UNSPECIFIED", query: args.query ?? "" },
+              { code_type: args.code_type ?? "", page_size: args.page_size ?? 0, page_token: args.page_token ?? "", sort: args.sort ?? "CODE_SORT_UNSPECIFIED", query: args.query ?? "", hospital_id: args.hospital_id ?? "" },
               (err: any, resp: any) => {
                 if (err) reject(err)
                 else resolve(resp)

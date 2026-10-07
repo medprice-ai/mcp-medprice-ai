@@ -169,7 +169,23 @@ message ListHospitalCodeCostsRequest {
   // next_page_token and continue (see issue #163).
   int32 page_size = 4;
   // Opaque token returned by a previous ListHospitalCodeCosts call. Empty for the first page.
+  // Only valid with the same code_type/code/methodology/min_sample_count it
+  // was issued for - it is just a result offset, so changing the filter
+  // between pages silently skips or repeats hospitals.
   string page_token = 5;
+  // Minimum pricing sample size (#858): only hospitals whose
+  // CodeCostStatsMessage.sample_count_sum_min is >= this value are returned,
+  // i.e. hospitals whose price is guaranteed to be backed by at least this
+  // many billing records. Compares against the de-identified range's lower
+  // bound (sample_count_sum_min), so a "1 through 10" row counts as 1, not
+  // 10. 0 (the default) disables the filter and returns every hospital with a
+  // matching entry, same as before this field existed. Pass 1 for "any real
+  // sample data" - most hospitals' filings report no sample counts at all
+  // (0/0), which CodeCostStatsMessage cannot tell apart from a genuine zero,
+  // so a threshold >= 1 also drops both. total_count and next_page_token
+  // describe the filtered set. Negative values are rejected with
+  // INVALID_ARGUMENT.
+  int64 min_sample_count = 6;
 }
 
 message ListHospitalCodeCostsResponse {
@@ -213,16 +229,20 @@ enum CodeSort {
   // /codes/[codeType] page) get pre-sorted "top codes" pages in one round
   // trip instead of fetching every page and sorting client-side (#399).
   CODE_SORT_HOSPITAL_COUNT_DESC = 1;
-  // Largest pricing sample size first (CodeSummary.total_sample_count_max)
-  // - ranks by how many billing records actually back a code's pricing,
-  // rather than by how many hospitals merely report it (#818).
+  // Largest network-wide pricing sample size first (CodeSummary's
+  // sample_count_max when ListCodesRequest.hospital_id is unset) - ranks by
+  // how many billing records actually back a code's pricing, rather than by
+  // how many hospitals merely report it (#818). Always network-wide,
+  // regardless of hospital_id - a hospital-scoped request still ranks codes
+  // by their overall popularity, not by that hospital's own sample size.
   CODE_SORT_SAMPLE_COUNT_DESC = 2;
   // Code-alphabetical, reverse order - the mirror image of the default
   // CODE_SORT_UNSPECIFIED ordering (#822).
   CODE_SORT_CODE_DESC = 3;
   // Best text match first: exact code, then code prefix, then description
-  // word-start, then description substring; ties broken by
-  // total_sample_count_max DESC (#911). Only meaningful when
+  // word-start, then description substring; ties broken by network-wide
+  // sample count descending, same as CODE_SORT_SAMPLE_COUNT_DESC (#911).
+  // Only meaningful when
   // ListCodesRequest.query is set, and is the default ordering in that case
   // (an explicit non-relevance sort still applies to the matching rows).
   // Without a query it behaves like CODE_SORT_SAMPLE_COUNT_DESC.
@@ -251,6 +271,16 @@ message ListCodesRequest {
   // total_count counts matches only. page_token is only valid with the same
   // query/code_type/sort it was issued for.
   string query = 5;
+  // Optional hospital scoping (#911 part 3): when set, restricts results to
+  // codes that hospital actually reports on its latest revision (a
+  // HospitalRegistryService.ListHospitals hospital_id) - a semi-join against
+  // public.hospital_code_cost_summary's aggregate (methodology IS NULL AND
+  // setting IS NULL) rows for that hospital_stable_id, same "no other
+  // revision with a later last_updated_on" latest-ness check
+  // HospitalCodeCostSummaryDAO.latestOnly already uses. Unset means
+  // network-wide, as before. page_token is only valid with the same
+  // hospital_id it was issued for, same as query/code_type/sort.
+  string hospital_id = 6;
 }
 
 message CodeSummary {
@@ -263,16 +293,24 @@ message CodeSummary {
   // caller decide what's worth a page/link for, rather than the server
   // imposing a fixed threshold (see issue #286).
   int32 hospital_count = 3;
-  // Sum of every reporting hospital's sample_count_sum_min (see
-  // CodeCostStatsMessage), as a [total_sample_count_min,
-  // total_sample_count_max] range - same de-identified-range semantics as
-  // CodeCostStatsMessage's fields (issue #818).
-  int64 total_sample_count_min = 4;
-  int64 total_sample_count_max = 5;
-  // True iff total_sample_count_min == total_sample_count_max, i.e. every
+  // [sample_count_min, sample_count_max] - same de-identified-range
+  // semantics as CodeCostStatsMessage's fields (issue #818). By default
+  // (ListCodesRequest.hospital_id unset) this is the sum of every reporting
+  // hospital's sample_count_sum_min/max, network-wide; when hospital_id is
+  // set (#911 part 3 follow-up), it's that one hospital's own
+  // sample_count_sum_min/max for this code on its latest revision instead -
+  // callers scoping to a hospital want that hospital's own sample size, not
+  // the whole network's, and a code only appears in a hospital-scoped result
+  // at all because that hospital reports it (see
+  // ListCodesRequest.hospital_id), so there's no "unset" case to represent
+  // here.
+  int64 sample_count_min = 4;
+  int64 sample_count_max = 5;
+  // True iff sample_count_min == sample_count_max, i.e. every
   // contributing hospital's sample_count was an exact count rather than a
-  // de-identified range.
-  bool total_sample_count_exact = 6;
+  // de-identified range (or, when hospital_id is set, that hospital's own
+  // sample_count was an exact count).
+  bool sample_count_exact = 6;
   // The code's type (e.g. "CPT") - always set, and what disambiguates hits
   // when ListCodesRequest.code_type is left empty for a cross-type search
   // (#911).
