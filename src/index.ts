@@ -52,12 +52,12 @@ const codeCostStatsSchema = {
     median: { type: "string" },
     std_dev: { type: "string" },
     sample_count_sum_min: {
-      type: "integer",
-      description: "Lower bound on the summed CMS sample-remittance count across contributing payer rows. Equal to sample_count_sum_max unless a de-identified '1 through 10' row narrowed it to a range."
+      type: "string",
+      description: "Lower bound on the summed CMS sample-remittance count across contributing payer rows, as a decimal string (int64 - see protoLoaderOptions.longs). Equal to sample_count_sum_max unless a de-identified '1 through 10' row narrowed it to a range."
     },
     sample_count_sum_max: {
-      type: "integer",
-      description: "Upper bound on the summed CMS sample-remittance count across contributing payer rows. Equal to sample_count_sum_min unless a de-identified '1 through 10' row narrowed it to a range."
+      type: "string",
+      description: "Upper bound on the summed CMS sample-remittance count across contributing payer rows, as a decimal string (int64 - see protoLoaderOptions.longs). Equal to sample_count_sum_min unless a de-identified '1 through 10' row narrowed it to a range."
     },
     sample_count_exact: {
       type: "boolean",
@@ -87,8 +87,8 @@ const methodologyCostResultSchema = {
       type: "boolean",
       description: "Whether a matching chargemaster cost record was found for this methodology."
     },
-    cost: codeCostStatsSchema,
-    description: hospitalDescriptionSchema
+    cost: { ...codeCostStatsSchema, type: ["object", "null"] as any },
+    description: { ...hospitalDescriptionSchema, type: ["object", "null"] as any }
   }
 }
 
@@ -292,12 +292,12 @@ const listCodesOutputSchema = {
             description: "Distinct hospitals reporting this code (latest revision only)."
           },
           sample_count_min: {
-            type: "integer",
-            description: "Lower bound on the CMS sample-remittance count. By default (no hospital_id in the request) this sums every reporting hospital's contributing payer rows, network-wide; when the request scopes to a hospital_id, it's that one hospital's own sample count for this code instead. Equal to sample_count_max unless a de-identified '1 through 10' row narrowed it to a range."
+            type: "string",
+            description: "Lower bound on the CMS sample-remittance count, as a decimal string (int64 - see protoLoaderOptions.longs). By default (no hospital_id in the request) this sums every reporting hospital's contributing payer rows, network-wide; when the request scopes to a hospital_id, it's that one hospital's own sample count for this code instead. Equal to sample_count_max unless a de-identified '1 through 10' row narrowed it to a range."
           },
           sample_count_max: {
-            type: "integer",
-            description: "Upper bound on the CMS sample-remittance count, same network-wide-vs-hospital-scoped convention as sample_count_min. Equal to sample_count_min unless a de-identified '1 through 10' row narrowed it to a range."
+            type: "string",
+            description: "Upper bound on the CMS sample-remittance count, as a decimal string (int64 - see protoLoaderOptions.longs), same network-wide-vs-hospital-scoped convention as sample_count_min. Equal to sample_count_min unless a de-identified '1 through 10' row narrowed it to a range."
           },
           sample_count_exact: {
             type: "boolean",
