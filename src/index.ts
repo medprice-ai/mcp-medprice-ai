@@ -604,6 +604,34 @@ const toolDefinitions = {
   }
 } as const
 
+// Per SEP-1649 (MCP Server Card, github.com/modelcontextprotocol/experimental-ext-server-card).
+// The card deliberately omits tools/resources/prompts/capabilities - per the
+// spec this is a safety property, so a static manifest can't be mistaken for
+// an access-control source of truth; clients still discover those live via
+// tools/list etc. after connecting. Keep name/title/description/version in
+// sync with server.json by hand - no import link between the two since
+// tsconfig's rootDir is "src" and resolveJsonModule isn't enabled.
+function buildServerCard() {
+  return {
+    $schema: "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+    name: "io.github.medprice-ai/mcp-medprice-ai",
+    title: "MedPrice AI",
+    description: "Hosted MCP server exposing US hospital chargemaster cost data to AI assistants",
+    version: "1.1",
+    websiteUrl: "https://medprice.ai",
+    repository: {
+      url: "https://github.com/medprice-ai/mcp-medprice-ai",
+      source: "github"
+    },
+    remotes: [
+      {
+        type: "streamable-http",
+        url: "https://mcp.medprice.ai/mcp"
+      }
+    ]
+  }
+}
+
 function createMcpServer(): Server {
   const server =
     new Server(
@@ -941,6 +969,16 @@ async function main() {
       } else if (req.url === "/.well-known/openai-apps-challenge") {
         res.writeHead(200, { "Content-Type": "text/plain" })
         res.end("RrHoI1-vNFS7iMcvXReVWdPygAr062ALBT3dONbZy1k")
+      } else if (
+        // "/.well-known/mcp/server-card.json" is what agent-discovery
+        // scanners (e.g. isitagentready.com) check today; "/mcp/server-card"
+        // is SEP-1649's actual recommended location, <streamable-http-url>/server-card.
+        // Serve both with the same content until scanners catch up.
+        req.url === "/.well-known/mcp/server-card.json" ||
+        req.url === "/mcp/server-card"
+      ) {
+        res.writeHead(200, { "Content-Type": "application/json" })
+        res.end(JSON.stringify(buildServerCard()))
       } else {
         res.writeHead(404)
         res.end()
