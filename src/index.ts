@@ -604,6 +604,37 @@ const toolDefinitions = {
   }
 } as const
 
+// Per SEP-1649 (MCP Server Card). Keep name/title/description/version in
+// sync with server.json by hand - no import link between the two since
+// tsconfig's rootDir is "src" and resolveJsonModule isn't enabled.
+function buildServerCard() {
+  return {
+    $schema: "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+    name: "io.github.medprice-ai/mcp-medprice-ai",
+    title: "MedPrice AI",
+    description: "Hosted MCP server exposing US hospital chargemaster cost data to AI assistants",
+    version: "1.1",
+    repository: {
+      url: "https://github.com/medprice-ai/mcp-medprice-ai",
+      source: "github"
+    },
+    remotes: [
+      {
+        type: "streamable-http",
+        url: "https://mcp.medprice.ai/mcp"
+      }
+    ],
+    capabilities: {
+      tools: {},
+      resources: {},
+      prompts: {}
+    },
+    tools: Object.values(toolDefinitions),
+    resources: [],
+    prompts: []
+  }
+}
+
 function createMcpServer(): Server {
   const server =
     new Server(
@@ -941,6 +972,9 @@ async function main() {
       } else if (req.url === "/.well-known/openai-apps-challenge") {
         res.writeHead(200, { "Content-Type": "text/plain" })
         res.end("RrHoI1-vNFS7iMcvXReVWdPygAr062ALBT3dONbZy1k")
+      } else if (req.url === "/.well-known/mcp/server-card.json") {
+        res.writeHead(200, { "Content-Type": "application/json" })
+        res.end(JSON.stringify(buildServerCard()))
       } else {
         res.writeHead(404)
         res.end()
