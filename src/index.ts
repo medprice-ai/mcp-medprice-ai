@@ -307,7 +307,7 @@ const listCodesOutputSchema = {
             type: "string",
             description: "This code's type, e.g. \"CPT\". Always set - distinguishes hits when query was searched across code types (code_type left empty in the request)."
           },
-          friendly_description: {
+          ai_description: {
             type: "string",
             description: "LLM-normalized, human-readable description. Empty when not yet backfilled - fall back to raw_description."
           }
@@ -591,7 +591,7 @@ const toolDefinitions = {
         },
         query: {
           type: "string",
-          description: "Case-insensitive text search: matches the code as a prefix, and substrings of the raw and friendly descriptions. Descriptions are only searched for queries of 4+ characters; shorter queries match the code prefix only. When set, code_type may be left empty to search across code types."
+          description: "Case-insensitive text search: matches the code as a prefix, and substrings of the raw and AI-generated descriptions. Descriptions are only searched for queries of 4+ characters; shorter queries match the code prefix only. When set, code_type may be left empty to search across code types."
         },
         hospital_id: {
           type: "string",

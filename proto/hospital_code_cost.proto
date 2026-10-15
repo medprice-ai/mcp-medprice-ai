@@ -1,6 +1,7 @@
 syntax = "proto3";
 package ai.medprice.api;
 
+import "google/protobuf/timestamp.proto";
 import "scalapb/scalapb.proto";
 
 option java_multiple_files = true;
@@ -125,6 +126,30 @@ message HospitalDescription {
   string location = 2;
   string code_description = 3;
   string methodology_note = 4;
+  // LLM-generated plain-English name for (code_type, code), backfilled into
+  // public.code_catalog by AiDescriptionBackfillJob (see issue #266).
+  // Unset until that job has processed this code; served unreviewed (no
+  // human spot-check gate) since traffic is low-stakes today - clients
+  // should fall back to code_description when absent.
+  optional string ai_description = 5;
+  // Which model wrote ai_description, with what settings, and when -
+  // so clients can disclose that it is machine-generated. Unset when
+  // ai_description is unset, and for descriptions stored before this was
+  // recorded.
+  optional LlmProvenance ai_description_provenance = 6;
+}
+
+// Provenance of an LLM-generated ai_description (#266).
+message LlmProvenance {
+  // The provider's model id, e.g. "claude-sonnet-5-5".
+  string model = 1;
+  // Everything else that shaped the output, as strings: provider, api
+  // (messages / message_batches / chat_completions), effort,
+  // max_output_tokens, prompt_hash (first 12 hex of sha256 of the system
+  // prompt). Keys may be added over time; clients should display what is
+  // present rather than expect a fixed set.
+  map<string, string> params = 2;
+  google.protobuf.Timestamp generated_at = 3;
 }
 
 message MethodologyCostResult {
@@ -260,7 +285,7 @@ message ListCodesRequest {
   // Defaults to CODE_SORT_UNSPECIFIED (code-alphabetical) - see #399.
   CodeSort sort = 4;
   // Optional case-insensitive text search (#911): matches the code as a
-  // prefix, and substrings of raw_description and friendly_description.
+  // prefix, and substrings of raw_description and ai_description.
   // Descriptions are only searched for queries of 4+ characters; shorter
   // queries match the code prefix only (a 1-3 character substring matches
   // too many descriptions to rank fast enough for per-keystroke use).
@@ -318,7 +343,10 @@ message CodeSummary {
   // LLM-normalized, human-readable description (#266) - empty when not yet
   // backfilled; fall back to raw_description. Searched alongside
   // raw_description by ListCodesRequest.query (#911).
-  string friendly_description = 8;
+  string ai_description = 8;
+  // Provenance of ai_description (see LlmProvenance);
+  // unset when ai_description is empty or predates provenance tracking.
+  optional LlmProvenance ai_description_provenance = 9;
 }
 
 message ListCodesResponse {
