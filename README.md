@@ -20,6 +20,7 @@ The server exposes five tools:
 - **`list_hospitals`** — returns the supported hospitals with their `hospital_id`, EIN, name, structured_locations (addresses with geocoded coordinates where available), last_updated_on, and revision history (each revision's date, `revision_id`, and whether it has payer-specific rate data).
 - **`get_hospital_chargemaster_cost`** — looks up cost stats for a billing code at a single hospital.
 - **`list_hospital_code_costs`** — looks up cost stats for a billing code across every hospital that has a matching chargemaster entry, paginated. Use this instead of calling `get_hospital_chargemaster_cost` once per hospital when comparing prices for the same procedure across hospitals.
+- **`get_code_price_distribution`** — returns the distribution of every hospital's price for a billing code (percentiles, histogram, and the real hospital at each percentile), computed server-side. Use instead of paging through `list_hospital_code_costs` for "is this price high?" questions.
 - **`list_code_types`** — lists every distinct billing code type (e.g. CPT, MS-DRG) with catalogued cost data, along with each type's distinct code count and total hospital reports.
 - **`list_codes`** — lists every distinct code under a given code type, paginated, with a raw chargemaster description and reporting-hospital count per code. Use this to discover which codes exist under a code system before pricing them.
 
@@ -99,6 +100,19 @@ Like `get_hospital_chargemaster_cost`, but returns one result per hospital that 
 - **`page_token`** (optional) — opaque token from a previous response's `next_page_token`, for pagination. If `next_page_token` is non-empty, keep calling with it until it's empty rather than assuming one page is the full list.
 
 Returns `results` (each hospital shaped like a `get_hospital_chargemaster_cost` response — `hospital`, `found`, `hospital_id`, and a `results` array with exactly one entry given the singular `methodology` filter) and `next_page_token`. Only hospitals with a matching entry (their latest revision) are included — there are no `found: false` entries.
+
+#### `get_code_price_distribution`
+
+Distribution of one per-hospital price figure across every hospital reporting the code, computed server-side in one call.
+
+- **`code_type`** (required), **`code`** (required) — same as above.
+- **`methodology`** (optional) — same options as `list_hospital_code_costs`; omit to aggregate across all.
+- **`min_sample_count`** (optional) — same semantics as `list_hospital_code_costs`.
+- **`bin_count`** (optional) — histogram bars; defaults to 16, max 200.
+- **`reference_price`** (optional) — when positive, `hospitals_below_reference` counts hospitals priced strictly below it.
+- **`statistic`** (optional) — `PRICE_STATISTIC_AVERAGE` (default), `PRICE_STATISTIC_MEDIAN`, `PRICE_STATISTIC_MIN` or `PRICE_STATISTIC_MAX`: the per-hospital figure being distributed.
+
+Returns `hospital_count`, `min`/`p10`/`q1`/`median`/`q3`/`p90`/`max`, `std_dev`, histogram (`histogram_lo`, `histogram_hi`, `histogram_bins`, `overflow_count`), a `*_hospital` point (`hospital_id`, `hospital_name`, `location`, `price`) for each percentile, and `hospitals_below_reference`. `hospital_count` 0 means no hospital reports a price.
 
 #### `list_code_types`
 

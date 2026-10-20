@@ -325,6 +325,49 @@ const listCodesOutputSchema = {
   }
 }
 
+const hospitalPricePointSchema = {
+  type: ["object", "null"],
+  description: "A real hospital and its price for the code, used to name a hospital at a percentile. Unset (absent or empty hospital_id) when hospital_count is 0.",
+  properties: {
+    hospital_id: { type: "string", description: "Opaque handle - pass back as hospital_id to other tools." },
+    hospital_name: { type: "string" },
+    location: { type: "string" },
+    price: { type: "number", description: "This hospital's value of the requested statistic." }
+  }
+}
+
+const getCodePriceDistributionOutputSchema = {
+  type: "object",
+  description: "A statistic ACROSS hospitals of one per-hospital value (the request's statistic: each hospital's average, median, min or max price). E.g. with statistic MEDIAN, `median` is the median across hospitals of each hospital's median price.",
+  properties: {
+    hospital_count: { type: "integer", description: "Hospitals with a positive value for the code on their latest revision (and at least min_sample_count samples, if set). 0 means every other field is unset." },
+    min: { type: "number" },
+    p10: { type: "number" },
+    q1: { type: "number", description: "25th percentile." },
+    median: { type: "number" },
+    q3: { type: "number", description: "75th percentile." },
+    p90: { type: "number" },
+    max: { type: "number" },
+    std_dev: { type: "number", description: "Population standard deviation of the per-hospital values." },
+    histogram_lo: { type: "number", description: "Lower edge of the first histogram bar (the minimum)." },
+    histogram_hi: { type: "number", description: "Upper edge of the last bar: min(max, 1.35 * p90), or min + 1 when that is not above the minimum. Hospitals priced above this are counted in overflow_count." },
+    histogram_bins: {
+      type: "array",
+      description: "Hospital count per equal-width bar from histogram_lo to histogram_hi; the last bar includes its upper edge.",
+      items: { type: "integer" }
+    },
+    overflow_count: { type: "integer", description: "Hospitals priced above histogram_hi." },
+    min_hospital: hospitalPricePointSchema,
+    p10_hospital: hospitalPricePointSchema,
+    q1_hospital: hospitalPricePointSchema,
+    median_hospital: hospitalPricePointSchema,
+    q3_hospital: hospitalPricePointSchema,
+    p90_hospital: hospitalPricePointSchema,
+    max_hospital: hospitalPricePointSchema,
+    hospitals_below_reference: { type: "integer", description: "Hospitals priced strictly below the request's reference_price; 0 when it was not set." }
+  }
+}
+
 const protoLoaderOptions: protoLoader.Options = {
   keepCase: true,
   longs: String,
@@ -538,6 +581,61 @@ const toolDefinitions = {
       required: ["code_type", "code"]
     },
     outputSchema: listHospitalCodeCostsOutputSchema
+  },
+  get_code_price_distribution: {
+    name: "get_code_price_distribution",
+    title: "Get price distribution for a billing code",
+    description: "Returns the distribution of every hospital's price for a code_type/code, computed server-side: min/p10/q1/median/q3/p90/max, standard deviation, a histogram, and the real hospital nearest each percentile. Use this instead of paging through list_hospital_code_costs when you want to know how prices spread across hospitals (e.g. \"is $12k high for MS-DRG 788?\" - pass reference_price to get the number of hospitals priced below it). All figures are in terms of the chosen statistic (default: each hospital's average price).",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false
+    },
+    inputSchema: {
+      type: "object",
+      properties: {
+        code_type: {
+          type: "string",
+          description: "Code system the billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC."
+        },
+        code: { type: "string" },
+        methodology: {
+          type: "string",
+          enum: [
+            "case rate",
+            "fee schedule",
+            "other",
+            "percent of total billed charges",
+            "per diem"
+          ],
+          description: "Pricing methodology. Omit to aggregate across all methodologies."
+        },
+        min_sample_count: {
+          type: "integer",
+          description: "Minimum pricing sample size: only include hospitals whose price is backed by at least this many billing records (same semantics as list_hospital_code_costs). 0 (default) disables the filter. Negative values are rejected."
+        },
+        bin_count: {
+          type: "integer",
+          description: "Number of histogram bars. Defaults to 16, capped at 200 (larger values are rejected)."
+        },
+        reference_price: {
+          type: "number",
+          description: "Optional price to place on the distribution. When positive, hospitals_below_reference counts hospitals priced strictly below it. Negative values are rejected."
+        },
+        statistic: {
+          type: "string",
+          enum: [
+            "PRICE_STATISTIC_AVERAGE",
+            "PRICE_STATISTIC_MEDIAN",
+            "PRICE_STATISTIC_MIN",
+            "PRICE_STATISTIC_MAX"
+          ],
+          description: "Which per-hospital figure to distribute: each hospital's average (default), median, lowest filed price, or highest filed price."
+        }
+      },
+      required: ["code_type", "code"]
+    },
+    outputSchema: getCodePriceDistributionOutputSchema
   },
   list_code_types: {
     name: "list_code_types",
@@ -771,6 +869,62 @@ function createMcpServer(): Server {
         }
 
         log("INFO", "grpc response", { tool: "list_hospitals", duration_ms: Date.now() - grpcStart })
+        const structuredContent = stripSyntheticOneofs(response)
+
+        return {
+          structuredContent,
+          content: [{
+            type: "text",
+            text: JSON.stringify(structuredContent, null, 2)
+          }]
+        }
+      }
+
+      if (request.params.name === "get_code_price_distribution") {
+        const args = z.object({
+          code_type: z.string(),
+          code: z.string(),
+          methodology: z.string().optional(),
+          min_sample_count: z.number().int().optional(),
+          bin_count: z.number().int().optional(),
+          reference_price: z.number().optional(),
+          statistic: z.enum([
+            "PRICE_STATISTIC_UNSPECIFIED",
+            "PRICE_STATISTIC_AVERAGE",
+            "PRICE_STATISTIC_MEDIAN",
+            "PRICE_STATISTIC_MIN",
+            "PRICE_STATISTIC_MAX"
+          ]).optional()
+        }).parse(request.params.arguments)
+
+        log("INFO", "grpc request", { tool: "get_code_price_distribution", code_type: args.code_type, code: args.code })
+        const grpcStart = Date.now()
+
+        let response: unknown
+        try {
+          response = await new Promise((resolve, reject) => {
+            client.GetCodePriceDistribution(
+              {
+                code_type: args.code_type,
+                code: args.code,
+                methodology: args.methodology ?? "",
+                min_sample_count: args.min_sample_count ?? 0,
+                bin_count: args.bin_count ?? 0,
+                reference_price: args.reference_price ?? 0,
+                statistic: args.statistic ?? "PRICE_STATISTIC_UNSPECIFIED"
+              },
+              (err: any, resp: any) => {
+                if (err) reject(err)
+                else resolve(resp)
+              }
+            )
+          })
+        } catch (err) {
+          log("ERROR", "grpc request failed", { tool: "get_code_price_distribution", code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart, error: String(err) })
+          throw err
+        }
+
+        log("INFO", "grpc response", { tool: "get_code_price_distribution", code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
         const structuredContent = stripSyntheticOneofs(response)
 
         return {

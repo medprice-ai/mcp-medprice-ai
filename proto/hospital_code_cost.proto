@@ -357,6 +357,106 @@ message ListCodesResponse {
   int32 total_count = 3;
 }
 
+// Issue #1315: the distribution of every hospital's average price for a code,
+// computed server-side so a client that wants a histogram and a percentile
+// ladder doesn't have to page through every hospital's ListHospitalCodeCosts
+// row (1,864 hospitals, 4 sequential pages, 7-8 s for MS-DRG 788).
+message CodePriceDistributionRequest {
+  // e.g. "MS-DRG"
+  string code_type = 1;
+  // e.g. "788"
+  string code = 2;
+  // Methodology db string, e.g. "case rate". Empty means "all methodologies" -
+  // the same row ListHospitalCodeCosts returns per hospital.
+  string methodology = 3;
+  // Same semantics as ListHospitalCodeCostsRequest.min_sample_count. Negative
+  // values are rejected with INVALID_ARGUMENT.
+  int64 min_sample_count = 4;
+  // Number of histogram bars. 0 means 16. Capped at 200; larger values are
+  // rejected with INVALID_ARGUMENT.
+  int32 bin_count = 5;
+  // Optional price to place on the distribution (a hospital's own value of the
+  // chosen statistic).
+  // When positive, hospitals_below_reference counts the hospitals priced
+  // strictly below it. 0 means none; negative values are rejected with
+  // INVALID_ARGUMENT.
+  double reference_price = 6;
+  // Which per-hospital figure to distribute. Unspecified means the average.
+  // Every price in the response (percentiles, histogram, hospital points,
+  // reference_price) is in terms of this statistic.
+  PriceStatistic statistic = 7;
+}
+
+// The per-hospital figure a price distribution is built from - one value per
+// hospital, from its latest-revision cost summary row.
+enum PriceStatistic {
+  // The average (same as PRICE_STATISTIC_AVERAGE).
+  PRICE_STATISTIC_UNSPECIFIED = 0;
+  PRICE_STATISTIC_AVERAGE = 1;
+  PRICE_STATISTIC_MEDIAN = 2;
+  // The hospital's lowest filed price for the code.
+  PRICE_STATISTIC_MIN = 3;
+  // The hospital's highest filed price for the code.
+  PRICE_STATISTIC_MAX = 4;
+}
+
+// A hospital and its price for the code (the request's statistic, the average
+// by default), as one point on the
+// distribution - used to name a real hospital at a percentile.
+message HospitalPricePoint {
+  // Opaque hospital_id, as in HospitalCostResult.
+  string hospital_id = 1;
+  string hospital_name = 2;
+  string location = 3;
+  double price = 4;
+}
+
+message CodePriceDistributionResponse {
+  // Everything below is a statistic ACROSS hospitals of one per-hospital value
+  // (the request's statistic: each hospital's average, median, min or max
+  // price). So with statistic = MEDIAN, `median` is the median across
+  // hospitals of each hospital's median price - and `min`/`max` are the
+  // cheapest/dearest hospital's value, not any hospital's lowest/highest
+  // filed charge (that is statistic = MIN / MAX, taken per hospital first).
+  //
+  // Hospitals with a positive value for the code on their latest
+  // revision (and, if set, at least min_sample_count samples). 0 means the
+  // other fields are unset: no hospital reports a price for this code.
+  int32 hospital_count = 1;
+  double min = 2;
+  double p10 = 3;
+  // 25th percentile.
+  double q1 = 4;
+  double median = 5;
+  // 75th percentile.
+  double q3 = 6;
+  double p90 = 7;
+  double max = 8;
+  // Population standard deviation of the per-hospital values.
+  double std_dev = 9;
+  // Equal-width bars from histogram_lo (the minimum) up to histogram_hi; the
+  // last bar includes its upper edge. Hospitals priced above histogram_hi are
+  // counted in overflow_count instead, so a few extreme hospitals don't
+  // flatten the rest into one bar: histogram_hi is min(max, 1.35 * p90), or
+  // min + 1 when that is not above the minimum.
+  double histogram_lo = 10;
+  double histogram_hi = 11;
+  repeated int32 histogram_bins = 12;
+  int32 overflow_count = 13;
+  // The hospital whose value is nearest each percentile (the lowest-priced
+  // on a tie), and the cheapest and most expensive hospitals.
+  HospitalPricePoint min_hospital = 14;
+  HospitalPricePoint p10_hospital = 15;
+  HospitalPricePoint q1_hospital = 16;
+  HospitalPricePoint median_hospital = 17;
+  HospitalPricePoint q3_hospital = 18;
+  HospitalPricePoint p90_hospital = 19;
+  HospitalPricePoint max_hospital = 20;
+  // Hospitals priced strictly below the request's reference_price; 0 when it
+  // was not set.
+  int32 hospitals_below_reference = 21;
+}
+
 service HospitalCodeCostService {
   // Returns cost stats for the single hospital identified by hospital_id -
   // one result per requested methodology (HospitalCodeCostRequest.methodologies),
@@ -373,6 +473,10 @@ service HospitalCodeCostService {
   // Returns cost stats for every hospital with a matching chargemaster entry
   // for (code_type, code), paginated - see issue #240.
   rpc ListHospitalCodeCosts (ListHospitalCodeCostsRequest) returns (ListHospitalCodeCostsResponse);
+  // Returns the distribution of every hospital's average price for (code_type,
+  // code): percentiles, a histogram and the hospitals at each percentile,
+  // computed server-side - see issue #1315.
+  rpc GetCodePriceDistribution (CodePriceDistributionRequest) returns (CodePriceDistributionResponse);
   // Returns every distinct code_type reporting data, for a /codes index page
   // - see issue #286.
   rpc ListCodeTypes (ListCodeTypesRequest) returns (ListCodeTypesResponse);
