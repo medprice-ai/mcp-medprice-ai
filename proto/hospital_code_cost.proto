@@ -211,6 +211,59 @@ message ListHospitalCodeCostsRequest {
   // describe the filtered set. Negative values are rejected with
   // INVALID_ARGUMENT.
   int64 min_sample_count = 6;
+  // Optional case-insensitive hospital-name search (#1370), ranked like
+  // ListHospitalsRequest.query: exact name, name prefix, word-start, then
+  // other substrings (ties by hospital_id). Applied to the hospitals that
+  // report the code. Blank/whitespace-only is treated as unset. total_count
+  // and next_page_token describe the matches only; page_token is only valid
+  // with the same query.
+  string query = 7;
+  // Result ordering (#1370). Unspecified means HOSPITAL_COST_ORDER_RELEVANCE
+  // when query is set and HOSPITAL_COST_ORDER_HOSPITAL_ID otherwise (today's
+  // behavior). Ties break by hospital_id ascending (relevance ties by name
+  // first, like ListHospitals). The ascending price orders list hospitals
+  // with a 0 price last. page_token is only valid with the same order_by.
+  HospitalCostOrder order_by = 8;
+}
+
+enum HospitalCostOrder {
+  HOSPITAL_COST_ORDER_UNSPECIFIED = 0;
+  HOSPITAL_COST_ORDER_HOSPITAL_ID = 1;
+  // Best name match first; only meaningful when query is set (without one it
+  // behaves like HOSPITAL_COST_ORDER_HOSPITAL_ID).
+  HOSPITAL_COST_ORDER_RELEVANCE = 2;
+  // Largest guaranteed pricing sample size (sample_count_sum_min) first.
+  HOSPITAL_COST_ORDER_SAMPLE_COUNT_DESC = 3;
+  // The *_ASC orders list hospitals whose value is 0 (no price filed) last.
+  HOSPITAL_COST_ORDER_AVG_ASC = 4;
+  HOSPITAL_COST_ORDER_AVG_DESC = 5;
+  HOSPITAL_COST_ORDER_MEDIAN_ASC = 6;
+  HOSPITAL_COST_ORDER_MEDIAN_DESC = 7;
+  HOSPITAL_COST_ORDER_MIN_ASC = 8;
+  HOSPITAL_COST_ORDER_MIN_DESC = 9;
+  HOSPITAL_COST_ORDER_MAX_ASC = 10;
+  HOSPITAL_COST_ORDER_MAX_DESC = 11;
+  // By the hospital's std dev for the code (#1378), a measure of how widely
+  // its own filed prices for the code vary. The spread is across every charge
+  // the hospital filed for the code (payers, plans, settings), so a high value
+  // can come from contract mix and billing structure as well as pricing
+  // discipline. It grows with the price level, so it mostly ranks expensive
+  // procedures and hospitals: use COEFFICIENT_OF_VARIATION to compare
+  // hospitals regardless of price level. Hospitals with a 0 std dev (none
+  // filed) list last in both directions.
+  HOSPITAL_COST_ORDER_STD_DEV_ASC = 12;
+  HOSPITAL_COST_ORDER_STD_DEV_DESC = 13;
+  // By std dev / average price (#1378): the same spread relative to the
+  // hospital's own price level, so it is comparable across hospitals and
+  // procedures. A hospital with a 0 std dev or no average price (0) has no
+  // coefficient and lists last in both directions.
+  HOSPITAL_COST_ORDER_COEFFICIENT_OF_VARIATION_ASC = 14;
+  HOSPITAL_COST_ORDER_COEFFICIENT_OF_VARIATION_DESC = 15;
+  // Smallest guaranteed pricing sample size (sample_count_sum_min) first
+  // (#1377). Many hospitals file no sample counts at all (0), which cannot be
+  // told apart from a genuine zero, so a 0 lists last: "fewest samples first"
+  // starts at the smallest real count.
+  HOSPITAL_COST_ORDER_SAMPLE_COUNT_ASC = 16;
 }
 
 message ListHospitalCodeCostsResponse {
@@ -455,6 +508,14 @@ message CodePriceDistributionResponse {
   // Hospitals priced strictly below the request's reference_price; 0 when it
   // was not set.
   int32 hospitals_below_reference = 21;
+  // Mean across hospitals of the request's statistic (#1370), so a client can
+  // show a national average without fetching every hospital. 0 when
+  // hospital_count is 0.
+  double mean = 22;
+  // The hospital whose value is nearest `mean` (the lowest-priced on a tie),
+  // chosen like the percentile hospitals above (#1373). Unset when
+  // hospital_count is 0.
+  HospitalPricePoint mean_hospital = 23;
 }
 
 service HospitalCodeCostService {

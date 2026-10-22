@@ -95,6 +95,13 @@ message ListHospitalsRequest {
   int32 page_size = 1;
   // Opaque token returned by a previous ListHospitals call. Empty for the first page.
   string page_token = 2;
+  // Optional case-insensitive hospital-name search (medprice-ai-web#216),
+  // mirroring ListCodesRequest.query: matches substrings of hospital_name,
+  // ranked exact name, name prefix, word-start, then other substrings (ties
+  // by name). Blank/whitespace-only is treated as unset, which keeps the
+  // hospital_id ordering. total_count counts matches only. page_token is only
+  // valid with the same query it was issued for.
+  string query = 3;
 }
 
 message ListHospitalsResponse {

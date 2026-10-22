@@ -364,6 +364,8 @@ const getCodePriceDistributionOutputSchema = {
     q3_hospital: hospitalPricePointSchema,
     p90_hospital: hospitalPricePointSchema,
     max_hospital: hospitalPricePointSchema,
+    mean: { type: "number", description: "Mean across hospitals of the request's statistic (a national average). 0 when hospital_count is 0." },
+    mean_hospital: hospitalPricePointSchema,
     hospitals_below_reference: { type: "integer", description: "Hospitals priced strictly below the request's reference_price; 0 when it was not set." }
   }
 }
@@ -531,7 +533,11 @@ const toolDefinitions = {
         },
         page_token: {
           type: "string",
-          description: "Opaque token from a previous list_hospitals response's next_page_token field. Omit for the first page. Do not pass any other value (e.g. an offset or cursor you construct yourself) here."
+          description: "Opaque token from a previous list_hospitals response's next_page_token field. Omit for the first page. Do not pass any other value (e.g. an offset or cursor you construct yourself) here. Only valid with the same query it was issued for."
+        },
+        query: {
+          type: "string",
+          description: "Optional case-insensitive hospital-name search: matches substrings of hospital_name, ranked exact name, name prefix, word-start, then other substrings (ties by name). Blank is treated as unset, which keeps the default hospital_id ordering. total_count counts matches only."
         }
       }
     },
@@ -571,11 +577,38 @@ const toolDefinitions = {
         },
         page_token: {
           type: "string",
-          description: "Opaque token from a previous list_hospital_code_costs response's next_page_token field. Omit for the first page. Only valid with the same code_type/code/methodology/min_sample_count it was issued for."
+          description: "Opaque token from a previous list_hospital_code_costs response's next_page_token field. Omit for the first page. Only valid with the same code_type/code/methodology/min_sample_count/query/order_by it was issued for."
         },
         min_sample_count: {
           type: "integer",
           description: "Minimum pricing sample size: only return hospitals whose price is backed by at least this many billing records (compared against the de-identified range's lower bound, so a '1 through 10' row counts as 1). 0 (default) disables the filter. Pass 1 to exclude hospitals with no real sample data at all (most filings report 0/0, indistinguishable from a genuine zero). total_count and next_page_token describe the filtered set. Negative values are rejected."
+        },
+        query: {
+          type: "string",
+          description: "Optional case-insensitive hospital-name search, applied to the hospitals that report the code and ranked like list_hospitals' query (exact name, name prefix, word-start, other substrings). Blank is treated as unset. total_count and next_page_token describe the matches only."
+        },
+        order_by: {
+          type: "string",
+          enum: [
+            "HOSPITAL_COST_ORDER_UNSPECIFIED",
+            "HOSPITAL_COST_ORDER_HOSPITAL_ID",
+            "HOSPITAL_COST_ORDER_RELEVANCE",
+            "HOSPITAL_COST_ORDER_SAMPLE_COUNT_DESC",
+            "HOSPITAL_COST_ORDER_SAMPLE_COUNT_ASC",
+            "HOSPITAL_COST_ORDER_AVG_ASC",
+            "HOSPITAL_COST_ORDER_AVG_DESC",
+            "HOSPITAL_COST_ORDER_MEDIAN_ASC",
+            "HOSPITAL_COST_ORDER_MEDIAN_DESC",
+            "HOSPITAL_COST_ORDER_MIN_ASC",
+            "HOSPITAL_COST_ORDER_MIN_DESC",
+            "HOSPITAL_COST_ORDER_MAX_ASC",
+            "HOSPITAL_COST_ORDER_MAX_DESC",
+            "HOSPITAL_COST_ORDER_STD_DEV_ASC",
+            "HOSPITAL_COST_ORDER_STD_DEV_DESC",
+            "HOSPITAL_COST_ORDER_COEFFICIENT_OF_VARIATION_ASC",
+            "HOSPITAL_COST_ORDER_COEFFICIENT_OF_VARIATION_DESC"
+          ],
+          description: "Result ordering. Unspecified (default) is HOSPITAL_COST_ORDER_RELEVANCE when query is set and HOSPITAL_COST_ORDER_HOSPITAL_ID otherwise. Ties break by hospital_id ascending. SAMPLE_COUNT_DESC/ASC order by the guaranteed pricing sample size (sample_count_sum_min); AVG/MEDIAN/MIN/MAX_ASC/DESC order by that price statistic; the *_ASC orders list hospitals with a 0 value (no price filed) last. STD_DEV_ASC/DESC order by how widely a hospital's own filed prices for the code vary (across payers, plans and settings, so contract mix counts as well as pricing discipline; it grows with price level). COEFFICIENT_OF_VARIATION_ASC/DESC order by std dev / average price, comparable across hospitals and procedures. page_token is only valid with the same order_by it was issued for."
         }
       },
       required: ["code_type", "code"]
@@ -846,7 +879,8 @@ function createMcpServer(): Server {
       if (request.params.name === "list_hospitals") {
         const args = z.object({
           page_size: z.number().int().optional(),
-          page_token: z.string().optional()
+          page_token: z.string().optional(),
+          query: z.string().optional()
         }).parse(request.params.arguments)
 
         log("INFO", "grpc request", { tool: "list_hospitals" })
@@ -856,7 +890,7 @@ function createMcpServer(): Server {
         try {
           response = await new Promise((resolve, reject) => {
             registryClient.ListHospitals(
-              { page_size: args.page_size ?? 0, page_token: args.page_token ?? "" },
+              { page_size: args.page_size ?? 0, page_token: args.page_token ?? "", query: args.query ?? "" },
               (err: any, resp: any) => {
                 if (err) reject(err)
                 else resolve(resp)
@@ -943,7 +977,27 @@ function createMcpServer(): Server {
           methodology: z.string().optional(),
           page_size: z.number().int().optional(),
           page_token: z.string().optional(),
-          min_sample_count: z.number().int().optional()
+          min_sample_count: z.number().int().optional(),
+          query: z.string().optional(),
+          order_by: z.enum([
+            "HOSPITAL_COST_ORDER_UNSPECIFIED",
+            "HOSPITAL_COST_ORDER_HOSPITAL_ID",
+            "HOSPITAL_COST_ORDER_RELEVANCE",
+            "HOSPITAL_COST_ORDER_SAMPLE_COUNT_DESC",
+            "HOSPITAL_COST_ORDER_SAMPLE_COUNT_ASC",
+            "HOSPITAL_COST_ORDER_AVG_ASC",
+            "HOSPITAL_COST_ORDER_AVG_DESC",
+            "HOSPITAL_COST_ORDER_MEDIAN_ASC",
+            "HOSPITAL_COST_ORDER_MEDIAN_DESC",
+            "HOSPITAL_COST_ORDER_MIN_ASC",
+            "HOSPITAL_COST_ORDER_MIN_DESC",
+            "HOSPITAL_COST_ORDER_MAX_ASC",
+            "HOSPITAL_COST_ORDER_MAX_DESC",
+            "HOSPITAL_COST_ORDER_STD_DEV_ASC",
+            "HOSPITAL_COST_ORDER_STD_DEV_DESC",
+            "HOSPITAL_COST_ORDER_COEFFICIENT_OF_VARIATION_ASC",
+            "HOSPITAL_COST_ORDER_COEFFICIENT_OF_VARIATION_DESC"
+          ]).optional()
         }).parse(request.params.arguments)
 
         log("INFO", "grpc request", { tool: "list_hospital_code_costs", code_type: args.code_type, code: args.code })
@@ -953,7 +1007,7 @@ function createMcpServer(): Server {
         try {
           response = await new Promise((resolve, reject) => {
             client.ListHospitalCodeCosts(
-              { code_type: args.code_type, code: args.code, methodology: args.methodology ?? "", page_size: args.page_size ?? 0, page_token: args.page_token ?? "", min_sample_count: args.min_sample_count ?? 0 },
+              { code_type: args.code_type, code: args.code, methodology: args.methodology ?? "", page_size: args.page_size ?? 0, page_token: args.page_token ?? "", min_sample_count: args.min_sample_count ?? 0, query: args.query ?? "", order_by: args.order_by ?? "HOSPITAL_COST_ORDER_UNSPECIFIED" },
               (err: any, resp: any) => {
                 if (err) reject(err)
                 else resolve(resp)
