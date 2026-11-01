@@ -1,0 +1,333 @@
+syntax = "proto3";
+package ai.medprice.api;
+
+import "code_summary.proto";
+import "llm_provenance.proto";
+import "price_distribution.proto";
+import "price_terms.proto";
+import "scalapb/scalapb.proto";
+
+option java_multiple_files = true;
+option java_package = "ai.medprice.api";
+option java_outer_classname = "ProviderCodeCostProto";
+option (scalapb.options) = {
+  scala3_sources: true
+};
+
+// A hospital's own charges for a code (#1574), served from the hospital-prices
+// serving snapshot (#1437, #1607) rather than Postgres: every hospital's latest
+// revision, aggregated per (code, billing class, methodology, setting) with
+// HospitalCodeCostService's cleaning. It will replace HospitalCodeCostService's
+// per-hospital lookups, whose figures blend billing classes (#1543).
+// Until the server has opened a snapshot, every RPC fails with UNAVAILABLE.
+service ProviderCodeCostService {
+  // Every billing class, methodology and setting one hospital charges a code
+  // under, and its figure over all of them.
+  rpc GetHospitalProviderCodeCosts(HospitalProviderCodeCostsRequest)
+      returns (HospitalProviderCodeCostsResponse);
+  // GetHospitalProviderCodeCosts for up to 100 codes of one hospital, answered
+  // from one read of the hospital's own provider code-cost file. The
+  // snapshot-backed counterpart of HospitalCodeCostService's
+  // BatchGetHospitalCodeCost, which stays as it is.
+  rpc BatchGetHospitalProviderCodeCosts(BatchHospitalProviderCodeCostsRequest)
+      returns (BatchHospitalProviderCodeCostsResponse);
+  // The codes one hospital reports on its latest revision, as ListCodes lists
+  // them (code_catalog's description, hospital count and AI description, with
+  // the same code_type, query and sort), each with the hospital's own
+  // all-terms sample counts. Read from the hospital's own provider code-cost
+  // file; the snapshot only says which revision is the latest.
+  rpc ListHospitalProviderCodes(ListHospitalProviderCodesRequest)
+      returns (ListHospitalProviderCodesResponse);
+  // Each hospital's charges for a code, one row per billing class,
+  // methodology and setting (or one per hospital, over all of them), one page
+  // of them.
+  rpc ListCodeProviderHospitals(ListCodeProviderHospitalsRequest)
+      returns (ListCodeProviderHospitalsResponse);
+  // The distribution of one figure per hospital for a code (percentiles,
+  // histogram, nearest hospitals), computed server-side as
+  // HospitalCodeCostService.GetCodePriceDistribution does, but from the
+  // snapshot and never blending billing classes.
+  rpc GetCodeProviderPriceDistribution(CodeProviderPriceDistributionRequest)
+      returns (CodeProviderPriceDistributionResponse);
+}
+
+// A hospital's charges for a code under one billing class, methodology and
+// setting: the stats of every priced row it filed for them, never blended, as
+// in PayerSummary. Or, as an all-terms figure, the same stats over every row
+// it filed for the code whatever the terms (an exact median over all of
+// them). Money is a decimal string with 2 places, like CodeCostStatsMessage's.
+message ProviderCodeCost {
+  // The billing class, methodology and setting the charges were filed under;
+  // all unset for an all-terms figure.
+  PriceTerms terms = 1;
+  // Priced rows behind the stats.
+  int64 n = 2;
+  // The lowest and highest of those charges (#1645).
+  string min_charge = 3;
+  string max_charge = 4;
+  string avg_charge = 5;
+  string median_charge = 6;
+  string std_dev_charge = 7;
+  // The hospital's most common description for the code; empty when it filed
+  // none.
+  string code_description = 8;
+  // As in CodeCostStatsMessage: a range because CMS de-identifies a count of
+  // 1 to 10 as "1 through 10" (#719).
+  int64 sample_count_sum_min = 9;
+  int64 sample_count_sum_max = 10;
+  // The lowest minimum and highest maximum the hospital's file states for
+  // the items behind these charges: CMS's de-identified per-item figures,
+  // across every payer and often other billing classes and settings, so they
+  // can lie outside min_charge..max_charge. Empty when the file states none.
+  string filed_min = 11;
+  string filed_max = 12;
+  // True iff sample_count_sum_min == sample_count_sum_max: no de-identified
+  // "1 through 10" count made the sample size a range. As
+  // CodeCostStatsMessage's.
+  bool sample_count_exact = 13;
+}
+
+message HospitalProviderCodeCostsRequest {
+  // HospitalRecord.hospital_id from ListHospitals.
+  string hospital_id = 1;
+  // e.g. "CPT". Codes are canonicalized like every other RPC's.
+  string code_type = 2;
+  // e.g. "99213"
+  string code = 3;
+  PriceTermsFilter filter = 4;
+  // Optional. Empty (the common case) answers for the hospital's latest
+  // revision, from the snapshot. One of this hospital's revision_ids from
+  // ListHospitals (HospitalRecord.revisions) answers for that filing instead,
+  // past or latest, from the revision's own provider code-cost file.
+  string revision_id = 5;
+}
+
+// NOT_FOUND when the hospital isn't in the snapshot (not a hospital_id, or
+// its latest revision isn't in the snapshot yet), or, with a revision_id,
+// when that isn't one of the hospital's revisions or its file isn't built
+// yet. A hospital that doesn't charge this code returns an empty `costs`.
+message HospitalProviderCodeCostsResponse {
+  string hospital_id = 1;
+  string hospital_name = 2;
+  string location = 3;
+  // The terms the filter matches, ordered by billing class, methodology and
+  // setting.
+  repeated ProviderCodeCost costs = 4;
+  // The serving snapshot the answer came from; empty when the request named a
+  // revision_id.
+  string snapshot_id = 5;
+  // The requested code in canonical form (e.g. "00211" for "211").
+  string code_type = 6;
+  string code = 7;
+  // The hospital's figure over every billing class, methodology and setting,
+  // whatever the filter; unset when it doesn't charge the code.
+  ProviderCodeCost all_terms = 8;
+  // The request's revision_id when it named one; empty for the snapshot's
+  // (latest) answer.
+  string revision_id = 9;
+}
+
+message ProviderCodeRef {
+  // e.g. "CPT". Codes are canonicalized like every other RPC's.
+  string code_type = 1;
+  // e.g. "99213"
+  string code = 2;
+}
+
+message BatchHospitalProviderCodeCostsRequest {
+  // HospitalRecord.hospital_id from ListHospitals. Empty is INVALID_ARGUMENT.
+  string hospital_id = 1;
+  // 1 to 100 codes, else INVALID_ARGUMENT, as is a malformed code. The same
+  // code twice (also after canonicalization) is answered twice.
+  repeated ProviderCodeRef codes = 2;
+  // Applies to every code, as in HospitalProviderCodeCostsRequest. It replaces
+  // the per-code `methodologies` of HospitalCodeCostService's CodeRef.
+  PriceTermsFilter filter = 3;
+  // As HospitalProviderCodeCostsRequest.revision_id.
+  string revision_id = 4;
+}
+
+// NOT_FOUND as HospitalProviderCodeCostsResponse says: the hospital isn't in
+// the snapshot, or, with a revision_id, that isn't one of its revisions or its
+// file isn't built yet.
+message BatchHospitalProviderCodeCostsResponse {
+  // One per requested code, in request order: exactly what
+  // GetHospitalProviderCodeCosts returns for that code. A code the hospital
+  // doesn't charge is an entry with no costs and no all_terms, not an error.
+  repeated HospitalProviderCodeCostsResponse results = 1;
+  // The serving snapshot the answer came from; empty when the request named a
+  // revision_id.
+  string snapshot_id = 2;
+  // The request's revision_id when it named one; empty otherwise.
+  string revision_id = 3;
+}
+
+message ListHospitalProviderCodesRequest {
+  // HospitalRecord.hospital_id from ListHospitals. Empty is INVALID_ARGUMENT.
+  string hospital_id = 1;
+  // As ListCodesRequest.code_type, query, sort, page_size and page_token (a
+  // page_token is only valid with the request it was issued for).
+  string code_type = 2;
+  string query = 3;
+  CodeSort sort = 4;
+  int32 page_size = 5;
+  string page_token = 6;
+  // As HospitalProviderCodeCostsRequest.revision_id: empty lists the codes of
+  // the hospital's latest revision; one of its revision_ids lists the codes
+  // that filing files, past or latest, from its own provider code-cost file.
+  string revision_id = 7;
+}
+
+// NOT_FOUND when the hospital isn't in the snapshot (not a hospital_id, or its
+// latest revision isn't in the snapshot yet), or, with a revision_id, when
+// that isn't one of the hospital's revisions or its file isn't built yet. UNAVAILABLE while the server has
+// no snapshot open, or when the snapshot holds a revision whose provider
+// code-cost file isn't readable on this server.
+message ListHospitalProviderCodesResponse {
+  // CodeSummary.sample_count_* are the hospital's own all-terms sample counts
+  // for the code, not the network's.
+  repeated CodeSummary codes = 1;
+  string next_page_token = 2;
+  // Codes matching the query, over all pages.
+  int32 total_count = 3;
+  // The serving snapshot the latest revision was taken from; empty when the
+  // request named a revision_id.
+  string snapshot_id = 4;
+  // The request's revision_id when it named one; empty otherwise.
+  string revision_id = 5;
+}
+
+// The orders of ListHospitalCodeCosts' HospitalCostOrder, applied to each
+// row (a hospital's figure under one set of terms, or its all-terms figure).
+// Ties break by hospital_id, then billing class, methodology and setting, so
+// paging is stable. The *_ASC orders list a 0 value (a price of 0 filed, a
+// sample count of 0) last.
+enum HospitalProviderCodeCostOrder {
+  // RELEVANCE when query is set, HOSPITAL_ID otherwise.
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_UNSPECIFIED = 0;
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_AVG_ASC = 1;
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_AVG_DESC = 2;
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_MEDIAN_ASC = 3;
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_MEDIAN_DESC = 4;
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_MIN_ASC = 5;
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_MAX_DESC = 6;
+  // Was HOSPITAL_NAME, which HospitalCostOrder doesn't have; a name query's
+  // RELEVANCE order replaces it.
+  reserved 7;
+  reserved "HOSPITAL_PROVIDER_CODE_COST_ORDER_HOSPITAL_NAME";
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_HOSPITAL_ID = 8;
+  // A name query's matches: exact name, name prefix, a name word starting
+  // with the query, any other match. HOSPITAL_ID without a query.
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_RELEVANCE = 9;
+  // By sample_count_sum_min, the guaranteed sample size.
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_SAMPLE_COUNT_DESC = 10;
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_SAMPLE_COUNT_ASC = 11;
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_MIN_DESC = 12;
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_MAX_ASC = 13;
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_STD_DEV_ASC = 14;
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_STD_DEV_DESC = 15;
+  // std dev / average, 0 when the average is 0.
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_COEFFICIENT_OF_VARIATION_ASC = 16;
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_COEFFICIENT_OF_VARIATION_DESC = 17;
+}
+
+message ListCodeProviderHospitalsRequest {
+  string code_type = 1;
+  string code = 2;
+  PriceTermsFilter filter = 3;
+  HospitalProviderCodeCostOrder order_by = 4;
+  // Defaults to 500, capped at 500, like ListHospitalCodeCosts.
+  int32 page_size = 5;
+  // Opaque token from a previous call with the same request fields. Empty
+  // for the first page.
+  string page_token = 6;
+  // One row per hospital, its figure over every billing class, methodology
+  // and setting, instead of one per set of terms. INVALID_ARGUMENT with a
+  // filter.
+  bool all_terms = 7;
+  // Only rows whose sample_count_sum_min is at least this; 0 (the default)
+  // keeps every row. INVALID_ARGUMENT when negative.
+  int64 min_sample_count = 8;
+  // Optional case-insensitive hospital-name search, matched like
+  // ListHospitalCodeCosts' query against the hospital's (corrected) name;
+  // blank is no search. total_count and next_page_token count the matches
+  // only.
+  string query = 9;
+}
+
+// One hospital's charges for a code under one billing class, methodology and
+// setting. A hospital charging the code under several appears once for each,
+// unless the request asked for all-terms figures.
+message HospitalProviderCodeCost {
+  string hospital_id = 1;
+  string hospital_name = 2;
+  string location = 3;
+  string ein = 4;
+  ProviderCodeCost cost = 5;
+}
+
+message ListCodeProviderHospitalsResponse {
+  repeated HospitalProviderCodeCost hospitals = 1;
+  // Empty when there are no more results.
+  string next_page_token = 2;
+  // Matching rows across every page. Without all_terms that is one row per
+  // hospital and set of terms, so a hospital charging the code under several
+  // counts once for each, and a page can hold several rows of one hospital;
+  // it counts hospitals only with all_terms, or with a filter naming a
+  // billing class, methodology and setting.
+  int32 total_count = 3;
+  string snapshot_id = 4;
+  // The requested code in canonical form.
+  string code_type = 5;
+  string code = 6;
+  // Distinct hospitals among the total_count rows: equal to total_count
+  // with all_terms or a filter naming a billing class, methodology and
+  // setting, since a hospital then has one row; otherwise a hospital
+  // charging the code under several sets of terms counts once.
+  int32 hospital_count = 7;
+  // The code's plain-English description from the code catalog, as
+  // HospitalDescription's; unset until the AI description job has
+  // processed the code, so fall back to the rows' code_description.
+  optional string ai_description = 8;
+  // Unset when ai_description is, and for descriptions stored before
+  // provenance was recorded.
+  optional LlmProvenance ai_description_provenance = 9;
+}
+
+// A distribution needs exactly one value per hospital, so the request takes
+// one of two shapes, and anything else is INVALID_ARGUMENT (naming the terms
+// missing): all_terms with no filter, each hospital's all-terms figure (the
+// blended "overall" one); or no all_terms and a filter naming all three of
+// billing class, methodology and setting, each hospital's figure under those
+// terms. "Not filed" counts as naming a term: set the field to its
+// *_UNSPECIFIED value. Billing classes are never combined (#1543).
+message CodeProviderPriceDistributionRequest {
+  string code_type = 1;
+  string code = 2;
+  // Must name a billing class, methodology and setting unless all_terms.
+  PriceTermsFilter filter = 3;
+  // Each hospital's all-terms figure. INVALID_ARGUMENT with a filter.
+  bool all_terms = 4;
+  // Only hospitals whose figure has a sample_count_sum_min of at least this;
+  // 0 keeps every hospital. INVALID_ARGUMENT when negative.
+  int64 min_sample_count = 5;
+  // Histogram bins; 0 means 16. INVALID_ARGUMENT above 200 or when negative.
+  int32 bin_count = 6;
+  // When positive, the response counts the hospitals priced strictly below
+  // it. INVALID_ARGUMENT when negative.
+  double reference_price = 7;
+  // Which figure of each hospital to distribute; UNSPECIFIED means AVERAGE.
+  // MIN and MAX span the charges alone (#1645), not the file's own per-item
+  // minimum and maximum the legacy RPC widened them to.
+  PriceStatistic statistic = 8;
+}
+
+message CodeProviderPriceDistributionResponse {
+  // Same fields and meaning as the legacy RPC's response; hospital_count 0
+  // and nothing else set when no hospital charges the code.
+  CodePriceDistributionResponse distribution = 1;
+  string snapshot_id = 2;
+  // The requested code in canonical form.
+  string code_type = 3;
+  string code = 4;
+}

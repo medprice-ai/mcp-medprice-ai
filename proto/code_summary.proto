@@ -1,0 +1,84 @@
+syntax = "proto3";
+package ai.medprice.api;
+
+import "llm_provenance.proto";
+import "scalapb/scalapb.proto";
+
+option java_multiple_files = true;
+option java_package = "ai.medprice.api";
+option java_outer_classname = "CodeSummaryProto";
+option (scalapb.options) = {
+  scala3_sources: true
+};
+
+// What ListCodes (HospitalCodeCostService) and ListHospitalProviderCodes
+// (ProviderCodeCostService) list, in a file of their own so that neither
+// service's file depends on the other's.
+
+enum CodeSort {
+  // Code-alphabetical - the original, and still default, ordering.
+  CODE_SORT_UNSPECIFIED = 0;
+  // Most hospitals reporting first - lets a caller (e.g. a
+  // /codes/[codeType] page) get pre-sorted "top codes" pages in one round
+  // trip instead of fetching every page and sorting client-side (#399).
+  CODE_SORT_HOSPITAL_COUNT_DESC = 1;
+  // Largest network-wide pricing sample size first (CodeSummary's
+  // sample_count_max when ListCodesRequest.hospital_id is unset) - ranks by
+  // how many billing records actually back a code's pricing, rather than by
+  // how many hospitals merely report it (#818). Always network-wide,
+  // regardless of hospital_id - a hospital-scoped request still ranks codes
+  // by their overall popularity, not by that hospital's own sample size.
+  CODE_SORT_SAMPLE_COUNT_DESC = 2;
+  // Code-alphabetical, reverse order - the mirror image of the default
+  // CODE_SORT_UNSPECIFIED ordering (#822).
+  CODE_SORT_CODE_DESC = 3;
+  // Best text match first: exact code, then code prefix, then description
+  // word-start, then description substring; ties broken by network-wide
+  // sample count descending, same as CODE_SORT_SAMPLE_COUNT_DESC (#911).
+  // Only meaningful when
+  // ListCodesRequest.query is set, and is the default ordering in that case
+  // (an explicit non-relevance sort still applies to the matching rows).
+  // Without a query it behaves like CODE_SORT_SAMPLE_COUNT_DESC.
+  CODE_SORT_RELEVANCE = 4;
+}
+
+message CodeSummary {
+  string code = 1;
+  // Raw chargemaster text, MODE()-picked across reporting hospitals - same
+  // caveat as HospitalDescription.code_description (see issue #266: this is
+  // not a human-readable procedure name).
+  string raw_description = 2;
+  // Distinct hospitals reporting this code (latest revision only) - lets a
+  // caller decide what's worth a page/link for, rather than the server
+  // imposing a fixed threshold (see issue #286).
+  int32 hospital_count = 3;
+  // [sample_count_min, sample_count_max] - same de-identified-range
+  // semantics as CodeCostStatsMessage's fields (issue #818). By default
+  // (ListCodesRequest.hospital_id unset) this is the sum of every reporting
+  // hospital's sample_count_sum_min/max, network-wide; when hospital_id is
+  // set (#911 part 3 follow-up), it's that one hospital's own
+  // sample_count_sum_min/max for this code on its latest revision instead -
+  // callers scoping to a hospital want that hospital's own sample size, not
+  // the whole network's, and a code only appears in a hospital-scoped result
+  // at all because that hospital reports it (see
+  // ListCodesRequest.hospital_id), so there's no "unset" case to represent
+  // here.
+  int64 sample_count_min = 4;
+  int64 sample_count_max = 5;
+  // True iff sample_count_min == sample_count_max, i.e. every
+  // contributing hospital's sample_count was an exact count rather than a
+  // de-identified range (or, when hospital_id is set, that hospital's own
+  // sample_count was an exact count).
+  bool sample_count_exact = 6;
+  // The code's type (e.g. "CPT") - always set, and what disambiguates hits
+  // when ListCodesRequest.code_type is left empty for a cross-type search
+  // (#911).
+  string code_type = 7;
+  // LLM-normalized, human-readable description (#266) - empty when not yet
+  // backfilled; fall back to raw_description. Searched alongside
+  // raw_description by ListCodesRequest.query (#911).
+  string ai_description = 8;
+  // Provenance of ai_description (see LlmProvenance);
+  // unset when ai_description is empty or predates provenance tracking.
+  optional LlmProvenance ai_description_provenance = 9;
+}

@@ -1,7 +1,9 @@
 syntax = "proto3";
 package ai.medprice.api;
 
-import "google/protobuf/timestamp.proto";
+import "code_summary.proto";
+import "llm_provenance.proto";
+import "price_distribution.proto";
 import "scalapb/scalapb.proto";
 
 option java_multiple_files = true;
@@ -137,19 +139,6 @@ message HospitalDescription {
   // ai_description is unset, and for descriptions stored before this was
   // recorded.
   optional LlmProvenance ai_description_provenance = 6;
-}
-
-// Provenance of an LLM-generated ai_description (#266).
-message LlmProvenance {
-  // The provider's model id, e.g. "claude-sonnet-5-5".
-  string model = 1;
-  // Everything else that shaped the output, as strings: provider, api
-  // (messages / message_batches / chat_completions), effort,
-  // max_output_tokens, prompt_hash (first 12 hex of sha256 of the system
-  // prompt). Keys may be added over time; clients should display what is
-  // present rather than expect a fixed set.
-  map<string, string> params = 2;
-  google.protobuf.Timestamp generated_at = 3;
 }
 
 message MethodologyCostResult {
@@ -300,33 +289,6 @@ message ListCodeTypesResponse {
   repeated CodeTypeSummary code_types = 1;
 }
 
-enum CodeSort {
-  // Code-alphabetical - the original, and still default, ordering.
-  CODE_SORT_UNSPECIFIED = 0;
-  // Most hospitals reporting first - lets a caller (e.g. a
-  // /codes/[codeType] page) get pre-sorted "top codes" pages in one round
-  // trip instead of fetching every page and sorting client-side (#399).
-  CODE_SORT_HOSPITAL_COUNT_DESC = 1;
-  // Largest network-wide pricing sample size first (CodeSummary's
-  // sample_count_max when ListCodesRequest.hospital_id is unset) - ranks by
-  // how many billing records actually back a code's pricing, rather than by
-  // how many hospitals merely report it (#818). Always network-wide,
-  // regardless of hospital_id - a hospital-scoped request still ranks codes
-  // by their overall popularity, not by that hospital's own sample size.
-  CODE_SORT_SAMPLE_COUNT_DESC = 2;
-  // Code-alphabetical, reverse order - the mirror image of the default
-  // CODE_SORT_UNSPECIFIED ordering (#822).
-  CODE_SORT_CODE_DESC = 3;
-  // Best text match first: exact code, then code prefix, then description
-  // word-start, then description substring; ties broken by network-wide
-  // sample count descending, same as CODE_SORT_SAMPLE_COUNT_DESC (#911).
-  // Only meaningful when
-  // ListCodesRequest.query is set, and is the default ordering in that case
-  // (an explicit non-relevance sort still applies to the matching rows).
-  // Without a query it behaves like CODE_SORT_SAMPLE_COUNT_DESC.
-  CODE_SORT_RELEVANCE = 4;
-}
-
 message ListCodesRequest {
   // e.g. "CPT"
   string code_type = 1;
@@ -359,47 +321,6 @@ message ListCodesRequest {
   // network-wide, as before. page_token is only valid with the same
   // hospital_id it was issued for, same as query/code_type/sort.
   string hospital_id = 6;
-}
-
-message CodeSummary {
-  string code = 1;
-  // Raw chargemaster text, MODE()-picked across reporting hospitals - same
-  // caveat as HospitalDescription.code_description (see issue #266: this is
-  // not a human-readable procedure name).
-  string raw_description = 2;
-  // Distinct hospitals reporting this code (latest revision only) - lets a
-  // caller decide what's worth a page/link for, rather than the server
-  // imposing a fixed threshold (see issue #286).
-  int32 hospital_count = 3;
-  // [sample_count_min, sample_count_max] - same de-identified-range
-  // semantics as CodeCostStatsMessage's fields (issue #818). By default
-  // (ListCodesRequest.hospital_id unset) this is the sum of every reporting
-  // hospital's sample_count_sum_min/max, network-wide; when hospital_id is
-  // set (#911 part 3 follow-up), it's that one hospital's own
-  // sample_count_sum_min/max for this code on its latest revision instead -
-  // callers scoping to a hospital want that hospital's own sample size, not
-  // the whole network's, and a code only appears in a hospital-scoped result
-  // at all because that hospital reports it (see
-  // ListCodesRequest.hospital_id), so there's no "unset" case to represent
-  // here.
-  int64 sample_count_min = 4;
-  int64 sample_count_max = 5;
-  // True iff sample_count_min == sample_count_max, i.e. every
-  // contributing hospital's sample_count was an exact count rather than a
-  // de-identified range (or, when hospital_id is set, that hospital's own
-  // sample_count was an exact count).
-  bool sample_count_exact = 6;
-  // The code's type (e.g. "CPT") - always set, and what disambiguates hits
-  // when ListCodesRequest.code_type is left empty for a cross-type search
-  // (#911).
-  string code_type = 7;
-  // LLM-normalized, human-readable description (#266) - empty when not yet
-  // backfilled; fall back to raw_description. Searched alongside
-  // raw_description by ListCodesRequest.query (#911).
-  string ai_description = 8;
-  // Provenance of ai_description (see LlmProvenance);
-  // unset when ai_description is empty or predates provenance tracking.
-  optional LlmProvenance ai_description_provenance = 9;
 }
 
 message ListCodesResponse {
@@ -438,84 +359,6 @@ message CodePriceDistributionRequest {
   // Every price in the response (percentiles, histogram, hospital points,
   // reference_price) is in terms of this statistic.
   PriceStatistic statistic = 7;
-}
-
-// The per-hospital figure a price distribution is built from - one value per
-// hospital, from its latest-revision cost summary row.
-enum PriceStatistic {
-  // The average (same as PRICE_STATISTIC_AVERAGE).
-  PRICE_STATISTIC_UNSPECIFIED = 0;
-  PRICE_STATISTIC_AVERAGE = 1;
-  PRICE_STATISTIC_MEDIAN = 2;
-  // The hospital's lowest filed price for the code.
-  PRICE_STATISTIC_MIN = 3;
-  // The hospital's highest filed price for the code.
-  PRICE_STATISTIC_MAX = 4;
-}
-
-// A hospital and its price for the code (the request's statistic, the average
-// by default), as one point on the
-// distribution - used to name a real hospital at a percentile.
-message HospitalPricePoint {
-  // Opaque hospital_id, as in HospitalCostResult.
-  string hospital_id = 1;
-  string hospital_name = 2;
-  string location = 3;
-  double price = 4;
-}
-
-message CodePriceDistributionResponse {
-  // Everything below is a statistic ACROSS hospitals of one per-hospital value
-  // (the request's statistic: each hospital's average, median, min or max
-  // price). So with statistic = MEDIAN, `median` is the median across
-  // hospitals of each hospital's median price - and `min`/`max` are the
-  // cheapest/dearest hospital's value, not any hospital's lowest/highest
-  // filed charge (that is statistic = MIN / MAX, taken per hospital first).
-  //
-  // Hospitals with a positive value for the code on their latest
-  // revision (and, if set, at least min_sample_count samples). 0 means the
-  // other fields are unset: no hospital reports a price for this code.
-  int32 hospital_count = 1;
-  double min = 2;
-  double p10 = 3;
-  // 25th percentile.
-  double q1 = 4;
-  double median = 5;
-  // 75th percentile.
-  double q3 = 6;
-  double p90 = 7;
-  double max = 8;
-  // Population standard deviation of the per-hospital values.
-  double std_dev = 9;
-  // Equal-width bars from histogram_lo (the minimum) up to histogram_hi; the
-  // last bar includes its upper edge. Hospitals priced above histogram_hi are
-  // counted in overflow_count instead, so a few extreme hospitals don't
-  // flatten the rest into one bar: histogram_hi is min(max, 1.35 * p90), or
-  // min + 1 when that is not above the minimum.
-  double histogram_lo = 10;
-  double histogram_hi = 11;
-  repeated int32 histogram_bins = 12;
-  int32 overflow_count = 13;
-  // The hospital whose value is nearest each percentile (the lowest-priced
-  // on a tie), and the cheapest and most expensive hospitals.
-  HospitalPricePoint min_hospital = 14;
-  HospitalPricePoint p10_hospital = 15;
-  HospitalPricePoint q1_hospital = 16;
-  HospitalPricePoint median_hospital = 17;
-  HospitalPricePoint q3_hospital = 18;
-  HospitalPricePoint p90_hospital = 19;
-  HospitalPricePoint max_hospital = 20;
-  // Hospitals priced strictly below the request's reference_price; 0 when it
-  // was not set.
-  int32 hospitals_below_reference = 21;
-  // Mean across hospitals of the request's statistic (#1370), so a client can
-  // show a national average without fetching every hospital. 0 when
-  // hospital_count is 0.
-  double mean = 22;
-  // The hospital whose value is nearest `mean` (the lowest-priced on a tie),
-  // chosen like the percentile hospitals above (#1373). Unset when
-  // hospital_count is 0.
-  HospitalPricePoint mean_hospital = 23;
 }
 
 service HospitalCodeCostService {

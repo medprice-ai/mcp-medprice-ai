@@ -1,0 +1,171 @@
+syntax = "proto3";
+package ai.medprice.api;
+
+import "price_terms.proto";
+import "scalapb/scalapb.proto";
+
+option java_multiple_files = true;
+option java_package = "ai.medprice.api";
+option java_outer_classname = "PayerCodeCostProto";
+option (scalapb.options) = {
+  scala3_sources: true
+};
+
+// Negotiated rates by insurer (#1396), served from the hospital-prices serving
+// snapshot (#1437, #1607) rather than Postgres: every hospital's latest revision,
+// aggregated per (code, payer, billing class, plan, methodology, setting).
+// Payers are canonical slugs (e.g. "aetna"), the same across hospitals.
+// Until the server has opened a snapshot, every RPC fails with UNAVAILABLE.
+service PayerCodeCostService {
+  // Every payer with a rate for a code, one summary per billing class,
+  // methodology and setting, across hospitals, most hospitals first.
+  rpc ListCodePayers(ListCodePayersRequest) returns (ListCodePayersResponse);
+  // Every plan rate one hospital files for a code, cheapest average first.
+  rpc GetHospitalCodePayerRates(HospitalCodePayerRatesRequest)
+      returns (HospitalCodePayerRatesResponse);
+  // One payer's rate for a code at each hospital, one row per billing class,
+  // methodology and setting, one page of them.
+  rpc ListCodePayerHospitals(ListCodePayerHospitalsRequest)
+      returns (ListCodePayerHospitalsResponse);
+}
+
+message ListCodePayersRequest {
+  // e.g. "CPT". Codes are canonicalized like every other RPC's.
+  string code_type = 1;
+  // e.g. "99213"
+  string code = 2;
+  PriceTermsFilter filter = 3;
+}
+
+// One payer's rates for a code under one billing class, methodology and
+// setting, across the hospitals that file them. None is ever blended: a
+// facility fee and a professional fee are separate bills, so one figure
+// averaging both would match neither; a per diem (a price per day) isn't
+// comparable with a case rate (one for the whole stay); and an inpatient rate
+// isn't an outpatient one. Money is a decimal string with 2
+// places, like CodeCostStatsMessage's.
+message PayerSummary {
+  string payer_slug = 1;
+  int64 hospital_count = 2;
+  // Rows behind the stats (each a hospital's plan/billing class/setting).
+  int64 n = 3;
+  string min_rate = 4;
+  // Weighted by each plan row's n.
+  string avg_rate = 5;
+  // The median of the per-hospital averages.
+  string median_hospital_avg = 6;
+  string max_rate = 7;
+  // The billing class, methodology and setting the rates were filed under.
+  PriceTerms terms = 11;
+  // Were billing_class, methodology and setting strings before #1567.
+  reserved 8, 9, 10;
+}
+
+message ListCodePayersResponse {
+  repeated PayerSummary payers = 1;
+  // The serving snapshot the answer came from.
+  string snapshot_id = 2;
+  // The requested code in canonical form (e.g. "00211" for "211").
+  string code_type = 3;
+  string code = 4;
+}
+
+message HospitalCodePayerRatesRequest {
+  // HospitalRecord.hospital_id from ListHospitals.
+  string hospital_id = 1;
+  string code_type = 2;
+  string code = 3;
+  PriceTermsFilter filter = 4;
+  // Optional. Empty (the common case) answers for the hospital's latest
+  // revision, from the snapshot. One of this hospital's revision_ids from
+  // ListHospitals (HospitalRecord.revisions) answers for that filing instead,
+  // past or latest, from the revision's own payer-rate file.
+  string revision_id = 5;
+}
+
+message PlanRate {
+  string payer_slug = 1;
+  string plan = 3;
+  int64 n = 6;
+  string min_rate = 7;
+  string avg_rate = 8;
+  string median_rate = 9;
+  string max_rate = 10;
+  // The billing class, methodology and setting the rate was filed under.
+  PriceTerms terms = 11;
+  // Were billing_class, methodology and setting strings before #1567.
+  reserved 2, 4, 5;
+}
+
+// NOT_FOUND when the hospital has no payer rates in the snapshot at all (no
+// payer data filed, or not a hospital_id), or, with a revision_id, when that
+// isn't one of the hospital's revisions or its file isn't built yet. A
+// hospital with payer rates but none for this code returns an empty `rates`.
+message HospitalCodePayerRatesResponse {
+  string hospital_id = 1;
+  string hospital_name = 2;
+  string location = 3;
+  repeated PlanRate rates = 4;
+  // The serving snapshot the answer came from; empty when the request named a
+  // revision_id.
+  string snapshot_id = 5;
+  // The requested code in canonical form.
+  string code_type = 6;
+  string code = 7;
+  // The request's revision_id when it named one; empty for the snapshot's
+  // (latest) answer.
+  string revision_id = 8;
+}
+
+enum HospitalPayerRateOrder {
+  HOSPITAL_PAYER_RATE_ORDER_UNSPECIFIED = 0; // same as AVG_ASC
+  AVG_ASC = 1;
+  AVG_DESC = 2;
+  MIN_ASC = 3;
+  MAX_DESC = 4;
+  HOSPITAL_NAME = 5;
+}
+
+message ListCodePayerHospitalsRequest {
+  string code_type = 1;
+  string code = 2;
+  // A PayerSummary.payer_slug, e.g. "aetna".
+  string payer_slug = 3;
+  PriceTermsFilter filter = 4;
+  HospitalPayerRateOrder order_by = 5;
+  // Defaults to 500, capped at 500, like ListHospitalCodeCosts.
+  int32 page_size = 6;
+  // Opaque token from a previous call with the same request fields. Empty
+  // for the first page.
+  string page_token = 7;
+}
+
+// One hospital's rates for a code from one payer under one billing class,
+// methodology and setting, rolled up across the payer's plans there. A
+// hospital filing the code under several appears once for each.
+message HospitalPayerRate {
+  string hospital_id = 1;
+  string hospital_name = 2;
+  string location = 3;
+  string ein = 4;
+  int64 plan_count = 5;
+  int64 n = 6;
+  string min_rate = 7;
+  string avg_rate = 8;
+  string max_rate = 9;
+  // As in PayerSummary.
+  PriceTerms terms = 13;
+  // Were billing_class, methodology and setting strings before #1567.
+  reserved 10, 11, 12;
+}
+
+message ListCodePayerHospitalsResponse {
+  repeated HospitalPayerRate hospitals = 1;
+  // Empty when there are no more results.
+  string next_page_token = 2;
+  int32 total_count = 3;
+  string snapshot_id = 4;
+  // The requested code in canonical form.
+  string code_type = 5;
+  string code = 6;
+}

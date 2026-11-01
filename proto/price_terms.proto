@@ -1,0 +1,80 @@
+syntax = "proto3";
+package ai.medprice.api;
+
+import "scalapb/scalapb.proto";
+
+option java_multiple_files = true;
+option java_package = "ai.medprice.api";
+option java_outer_classname = "PriceTermsProto";
+option (scalapb.options) = {
+  scala3_sources: true
+};
+
+// The terms a price was filed under (#1567), shared by the payer code-cost and
+// provider code-cost APIs. Every figure is for one set of terms, never a
+// blend: a facility fee and a professional fee are separate bills (#1543), a
+// per diem is a price per day and a case rate one for the whole stay, and an
+// inpatient price isn't an outpatient one.
+
+// CMS's billing class. BILLING_CLASS_BOTH is a class of its own (CMS doesn't
+// define it), never the sum of the other two.
+enum BillingClass {
+  // None filed: the price can't be assumed to be either class.
+  BILLING_CLASS_UNSPECIFIED = 0;
+  BILLING_CLASS_PROFESSIONAL = 1;
+  BILLING_CLASS_FACILITY = 2;
+  BILLING_CLASS_BOTH = 3;
+  // Filed as a value outside the CMS set; PriceTerms.billing_class_filed has
+  // the text.
+  BILLING_CLASS_UNKNOWN = 4;
+}
+
+// CMS's standard-charge methodology.
+enum Methodology {
+  // None filed.
+  METHODOLOGY_UNSPECIFIED = 0;
+  METHODOLOGY_CASE_RATE = 1;
+  METHODOLOGY_FEE_SCHEDULE = 2;
+  // CMS's own "other" value, not an unrecognized one.
+  METHODOLOGY_OTHER = 3;
+  METHODOLOGY_PERCENT_OF_TOTAL_BILLED_CHARGES = 4;
+  METHODOLOGY_PER_DIEM = 5;
+  // Filed as a value outside the CMS set; PriceTerms.methodology_filed has the
+  // text.
+  METHODOLOGY_UNKNOWN = 6;
+}
+
+// CMS's setting.
+enum Setting {
+  // None filed.
+  SETTING_UNSPECIFIED = 0;
+  SETTING_INPATIENT = 1;
+  SETTING_OUTPATIENT = 2;
+  SETTING_BOTH = 3;
+  // Filed as a value outside the CMS set; PriceTerms.setting_filed has the
+  // text.
+  SETTING_UNKNOWN = 4;
+}
+
+// The billing class, methodology and setting a figure is for. Each *_filed
+// field is the text as filed when its enum is *_UNKNOWN, and empty otherwise,
+// so nothing a hospital filed is lost.
+message PriceTerms {
+  BillingClass billing_class = 1;
+  string billing_class_filed = 2;
+  Methodology methodology = 3;
+  string methodology_filed = 4;
+  Setting setting = 5;
+  string setting_filed = 6;
+}
+
+// Narrows prices to one billing class, methodology and/or setting. An unset
+// field means any; *_UNSPECIFIED selects the prices with none filed; *_UNKNOWN
+// is INVALID_ARGUMENT (an unrecognized value can't be named). Results are
+// split by PriceTerms whatever the filter, so leaving it unset never blends
+// one set of terms with another.
+message PriceTermsFilter {
+  optional BillingClass billing_class = 1;
+  optional Methodology methodology = 2;
+  optional Setting setting = 3;
+}

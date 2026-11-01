@@ -1,0 +1,28 @@
+syntax = "proto3";
+package ai.medprice.api;
+
+import "google/protobuf/timestamp.proto";
+import "scalapb/scalapb.proto";
+
+option java_multiple_files = true;
+option java_package = "ai.medprice.api";
+option java_outer_classname = "LlmProvenanceProto";
+option (scalapb.options) = {
+  scala3_sources: true
+};
+
+// Shared by HospitalCodeCostService and ProviderCodeCostService, so the latter
+// doesn't depend on the legacy service's proto file.
+
+// Provenance of an LLM-generated ai_description (#266).
+message LlmProvenance {
+  // The provider's model id, e.g. "claude-sonnet-5-5".
+  string model = 1;
+  // Everything else that shaped the output, as strings: provider, api
+  // (messages / message_batches / chat_completions), effort,
+  // max_output_tokens, prompt_hash (first 12 hex of sha256 of the system
+  // prompt). Keys may be added over time; clients should display what is
+  // present rather than expect a fixed set.
+  map<string, string> params = 2;
+  google.protobuf.Timestamp generated_at = 3;
+}

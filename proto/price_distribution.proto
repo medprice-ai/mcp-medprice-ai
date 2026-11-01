@@ -1,0 +1,94 @@
+syntax = "proto3";
+package ai.medprice.api;
+
+import "scalapb/scalapb.proto";
+
+option java_multiple_files = true;
+option java_package = "ai.medprice.api";
+option java_outer_classname = "PriceDistributionProto";
+option (scalapb.options) = {
+  scala3_sources: true
+};
+
+// The messages of a price distribution (#1315), shared by
+// HospitalCodeCostService.GetCodePriceDistribution and
+// ProviderCodeCostService.GetCodeProviderPriceDistribution so the latter
+// doesn't depend on the legacy service's proto file.
+
+// The per-hospital figure a price distribution is built from - one value per
+// hospital, from its latest-revision cost summary row.
+enum PriceStatistic {
+  // The average (same as PRICE_STATISTIC_AVERAGE).
+  PRICE_STATISTIC_UNSPECIFIED = 0;
+  PRICE_STATISTIC_AVERAGE = 1;
+  PRICE_STATISTIC_MEDIAN = 2;
+  // The hospital's lowest filed price for the code.
+  PRICE_STATISTIC_MIN = 3;
+  // The hospital's highest filed price for the code.
+  PRICE_STATISTIC_MAX = 4;
+}
+
+// A hospital and its price for the code (the request's statistic, the average
+// by default), as one point on the
+// distribution - used to name a real hospital at a percentile.
+message HospitalPricePoint {
+  // Opaque hospital_id, as in HospitalCostResult.
+  string hospital_id = 1;
+  string hospital_name = 2;
+  string location = 3;
+  double price = 4;
+}
+
+message CodePriceDistributionResponse {
+  // Everything below is a statistic ACROSS hospitals of one per-hospital value
+  // (the request's statistic: each hospital's average, median, min or max
+  // price). So with statistic = MEDIAN, `median` is the median across
+  // hospitals of each hospital's median price - and `min`/`max` are the
+  // cheapest/dearest hospital's value, not any hospital's lowest/highest
+  // filed charge (that is statistic = MIN / MAX, taken per hospital first).
+  //
+  // Hospitals with a positive value for the code on their latest
+  // revision (and, if set, at least min_sample_count samples). 0 means the
+  // other fields are unset: no hospital reports a price for this code.
+  int32 hospital_count = 1;
+  double min = 2;
+  double p10 = 3;
+  // 25th percentile.
+  double q1 = 4;
+  double median = 5;
+  // 75th percentile.
+  double q3 = 6;
+  double p90 = 7;
+  double max = 8;
+  // Population standard deviation of the per-hospital values.
+  double std_dev = 9;
+  // Equal-width bars from histogram_lo (the minimum) up to histogram_hi; the
+  // last bar includes its upper edge. Hospitals priced above histogram_hi are
+  // counted in overflow_count instead, so a few extreme hospitals don't
+  // flatten the rest into one bar: histogram_hi is min(max, 1.35 * p90), or
+  // min + 1 when that is not above the minimum.
+  double histogram_lo = 10;
+  double histogram_hi = 11;
+  repeated int32 histogram_bins = 12;
+  int32 overflow_count = 13;
+  // The hospital whose value is nearest each percentile (the lowest-priced
+  // on a tie), and the cheapest and most expensive hospitals.
+  HospitalPricePoint min_hospital = 14;
+  HospitalPricePoint p10_hospital = 15;
+  HospitalPricePoint q1_hospital = 16;
+  HospitalPricePoint median_hospital = 17;
+  HospitalPricePoint q3_hospital = 18;
+  HospitalPricePoint p90_hospital = 19;
+  HospitalPricePoint max_hospital = 20;
+  // Hospitals priced strictly below the request's reference_price; 0 when it
+  // was not set.
+  int32 hospitals_below_reference = 21;
+  // Mean across hospitals of the request's statistic (#1370), so a client can
+  // show a national average without fetching every hospital. 0 when
+  // hospital_count is 0.
+  double mean = 22;
+  // The hospital whose value is nearest `mean` (the lowest-priced on a tie),
+  // chosen like the percentile hospitals above (#1373). Unset when
+  // hospital_count is 0.
+  HospitalPricePoint mean_hospital = 23;
+}
