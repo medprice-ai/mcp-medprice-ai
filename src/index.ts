@@ -843,7 +843,7 @@ const toolDefinitions = {
       type: "object",
       properties: {
         hospital_id: { type: "string", description: "Opaque hospital identifier from list_hospitals." },
-        code_type: { type: "string", description: "Optional code system to restrict to, e.g. CPT. Omit to list every code type." },
+        code_type: { type: "string", description: "Code system to list, e.g. CPT. Required unless query is set; with query it may be left empty to search across code types (CodeSummary.code_type tells the hits apart)." },
         query: { type: "string", description: "Optional case-insensitive search over code prefix and descriptions." },
         sort: {
           type: "string",
@@ -911,6 +911,29 @@ const toolDefinitions = {
           enum: ["PRICE_STATISTIC_AVERAGE", "PRICE_STATISTIC_MEDIAN", "PRICE_STATISTIC_MIN", "PRICE_STATISTIC_MAX"],
           description: "Which per-hospital figure to distribute (default average)."
         }
+      },
+      required: ["code_type", "code"]
+    }
+  },
+  get_code_provider_terms_summary: {
+    name: "get_code_provider_terms_summary",
+    title: "Summarize the price terms hospitals file a code under",
+    description: "Which billing classes, methodologies and settings hospitals file a (code_type, code) under, and how many hospitals each group has, so a caller can offer the choices before calling list_code_provider_hospitals or get_code_provider_price_distribution. group_by sets what each entry is a group of (default: one set of terms). A hospital filing several groups is counted in each, so don't sum the entries' hospital_count; use the top-level hospital_count for distinct hospitals. Backed by the hospital-prices serving snapshot; fails with UNAVAILABLE until the server has opened one.",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false
+    },
+    inputSchema: {
+      type: "object",
+      properties: {
+        code_type: {
+          type: "string",
+          description: "Code system the billing code belongs to, e.g. APR-DRG, CDM, CPT, HCPCS, MS-DRG, RC."
+        },
+        code: { type: "string" },
+        group_by: groupBySchema,
+        min_sample_count: { type: "integer", description: "Only count hospitals whose figure has at least this many billing records (same rule as list_code_provider_hospitals). Negative values are rejected." }
       },
       required: ["code_type", "code"]
     }
@@ -1329,6 +1352,8 @@ function createMcpServer(): Server {
           page_size: z.number().int().optional(),
           page_token: z.string().optional(),
           revision_id: z.string().optional()
+        }).refine(a => a.code_type || a.query, {
+          message: "code_type is required unless query is set"
         }).parse(request.params.arguments)
 
         return callProviderRpc("list_hospital_provider_codes", "ListHospitalProviderCodes", {
@@ -1395,6 +1420,22 @@ function createMcpServer(): Server {
           bin_count: args.bin_count ?? 0,
           reference_price: args.reference_price ?? 0,
           statistic: args.statistic ?? "PRICE_STATISTIC_UNSPECIFIED"
+        }, { code_type: args.code_type, code: args.code })
+      }
+
+      if (request.params.name === "get_code_provider_terms_summary") {
+        const args = z.object({
+          code_type: z.string(),
+          code: z.string(),
+          group_by: groupByZod,
+          min_sample_count: z.number().int().optional()
+        }).parse(request.params.arguments)
+
+        return callProviderRpc("get_code_provider_terms_summary", "GetCodeProviderTermsSummary", {
+          code_type: args.code_type,
+          code: args.code,
+          group_by: args.group_by ?? "GROUP_BY_PER_COMBINATION",
+          min_sample_count: args.min_sample_count ?? 0
         }, { code_type: args.code_type, code: args.code })
       }
 
