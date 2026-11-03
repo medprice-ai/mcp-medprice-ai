@@ -78,3 +78,66 @@ message PriceTermsFilter {
   optional Methodology methodology = 2;
   optional Setting setting = 3;
 }
+
+// How a hospital's charges for a code are combined into rows (#1849), shared by
+// every provider RPC that returns figures. A request
+// has two sibling fields that work in this order:
+//
+//   group_by  decides which rows exist (how the hospital's charges are pooled).
+//   filter    then keeps only some of those rows (a WHERE on the grouped rows).
+//
+// A term is one of billing class, methodology and setting (PriceTerms). A
+// hospital files a code under one or more combinations of them. Stored per
+// combination, and pooled again by billing class, by methodology and over
+// everything, each pool with an exact median and standard deviation (a median
+// can't be combined from smaller ones). A facility fee is never pooled with a
+// professional one unless the grouping is ALL (#1543).
+//
+// Example. Hospital H files CPT 99213 under three combinations:
+//
+//   #  billing class  methodology    setting     median
+//   1  facility       fee schedule   outpatient  $100
+//   2  facility       case rate      outpatient  $150
+//   3  professional   fee schedule   outpatient  $80
+//
+// group_by alone:
+//   PER_COMBINATION  3 rows: #1, #2, #3.
+//   BILLING_CLASS    2 rows: facility (#1 and #2 pooled), professional (#3).
+//   METHODOLOGY      2 rows: fee schedule (#1 and #3 pooled), case rate (#2).
+//   ALL              1 row: #1, #2 and #3 pooled; no terms set.
+//
+// group_by then filter:
+//   BILLING_CLASS + billing_class = facility    1 row: facility (#1 + #2).
+//   METHODOLOGY + methodology = case rate       1 row: case rate (#2).
+//   PER_COMBINATION + billing_class = facility  2 rows: #1 and #2.
+//   BILLING_CLASS + methodology = case rate     INVALID_ARGUMENT: grouping by
+//     billing class pooled the methodologies away, so none is left to match.
+//   ALL, no filter                              1 row: #1, #2 and #3 pooled.
+//   ALL + billing_class = facility              INVALID_ARGUMENT: ALL pooled
+//     the billing classes away too. ALL keeps no terms, so it takes no filter
+//     at all; to see only facility charges, group by BILLING_CLASS instead.
+//
+// Across hospitals (ListCodeProviderHospitals) the filter decides who is listed
+// and with what: BILLING_CLASS + billing_class = facility lists each hospital's
+// facility figure, and a hospital with only professional rows isn't listed. A
+// distribution needs one figure per hospital, so there the filter must name
+// every term the grouping keeps (BILLING_CLASS + a billing class; ALL with no
+// filter), else INVALID_ARGUMENT.
+//
+// So the filter may only name the terms the grouping still tells rows apart by:
+// all three for PER_COMBINATION, the billing class for BILLING_CLASS, the
+// methodology for METHODOLOGY, none for ALL. No pool by setting, or by a billing
+// class and a methodology together, is built.
+enum GroupBy {
+  // One row per billing class, methodology and setting, the default.
+  GROUP_BY_PER_COMBINATION = 0;
+  // One row per billing class, pooled over methodologies and settings; each
+  // row's terms name only the billing class.
+  GROUP_BY_BILLING_CLASS = 1;
+  // One row per methodology, pooled over billing classes and settings; each
+  // row's terms name only the methodology.
+  GROUP_BY_METHODOLOGY = 2;
+  // One row: the figure over every set of terms the hospital files the code
+  // under, its terms all unset. It blends billing classes.
+  GROUP_BY_ALL = 3;
+}

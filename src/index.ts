@@ -452,6 +452,21 @@ const PROVIDER_ORDERS = [
   "HOSPITAL_PROVIDER_CODE_COST_ORDER_COEFFICIENT_OF_VARIATION_DESC"
 ] as const
 
+const GROUP_BYS = [
+  "GROUP_BY_PER_COMBINATION",
+  "GROUP_BY_BILLING_CLASS",
+  "GROUP_BY_METHODOLOGY",
+  "GROUP_BY_ALL"
+] as const
+
+const groupByZod = z.enum(GROUP_BYS).optional()
+
+const groupBySchema = {
+  type: "string",
+  enum: [...GROUP_BYS],
+  description: "Which rows exist: one per billing class + methodology + setting (GROUP_BY_PER_COMBINATION, the default), per billing class, per methodology, or GROUP_BY_ALL (one figure over everything, blending billing classes). Applied before filter, which may name only the terms the grouping still keeps (e.g. GROUP_BY_BILLING_CLASS with a methodology filter, or GROUP_BY_ALL with any filter, is rejected as INVALID_ARGUMENT)."
+}
+
 const priceTermsFilterZod = z.object({
   billing_class: z.enum(BILLING_CLASSES).optional(),
   methodology: z.enum(METHODOLOGIES).optional(),
@@ -460,7 +475,7 @@ const priceTermsFilterZod = z.object({
 
 const priceTermsFilterSchema = {
   type: "object",
-  description: "Restricts which price terms are returned. Each field left out matches any value; set a field (even to its *_UNSPECIFIED value, which means 'not filed') to require it. Billing classes are never blended: a facility fee and a professional fee are separate bills.",
+  description: "Keeps only some of the grouped rows (see group_by). Each field left out matches any value; set a field (even to its *_UNSPECIFIED value, which means 'not filed') to require it. Billing classes are never blended: a facility fee and a professional fee are separate bills.",
   properties: {
     billing_class: { type: "string", enum: [...BILLING_CLASSES] },
     methodology: { type: "string", enum: [...METHODOLOGIES] },
@@ -760,7 +775,7 @@ const toolDefinitions = {
   get_hospital_provider_code_costs: {
     name: "get_hospital_provider_code_costs",
     title: "Get a hospital's provider charges for a code",
-    description: "Returns one hospital's own charges for a (code_type, code), one entry per billing class, methodology and setting (never blended), plus an all_terms figure over all of them. Unlike get_hospital_chargemaster_cost, billing classes are not mixed into one figure. Pass revision_id to answer for a past filing. Backed by the hospital-prices serving snapshot; fails with UNAVAILABLE until the server has opened one.",
+    description: "Returns one hospital's own charges for a (code_type, code), one entry per row of the group_by grouping (default: per billing class, methodology and setting; never blended unless GROUP_BY_ALL), plus an all_terms figure over all of them regardless of grouping. Unlike get_hospital_chargemaster_cost, billing classes are not mixed into one figure. Pass revision_id to answer for a past filing. Backed by the hospital-prices serving snapshot; fails with UNAVAILABLE until the server has opened one.",
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -776,6 +791,7 @@ const toolDefinitions = {
         },
         code: { type: "string" },
         filter: priceTermsFilterSchema,
+        group_by: groupBySchema,
         revision_id: { type: "string", description: "Optional. A revision_id from list_hospitals' per-hospital revisions array. Omit for the latest revision." }
       },
       required: ["hospital_id", "code_type", "code"]
@@ -808,6 +824,7 @@ const toolDefinitions = {
           }
         },
         filter: priceTermsFilterSchema,
+        group_by: groupBySchema,
         revision_id: { type: "string", description: "Optional. A revision_id from list_hospitals. Omit for the latest revision." }
       },
       required: ["hospital_id", "codes"]
@@ -842,7 +859,7 @@ const toolDefinitions = {
   list_code_provider_hospitals: {
     name: "list_code_provider_hospitals",
     title: "List hospitals' provider charges for a code",
-    description: "Each hospital's charges for a (code_type, code), one row per billing class, methodology and setting (or one row per hospital with all_terms=true), paginated. The billing-class-aware counterpart to list_hospital_code_costs, good for 'which hospital is cheapest for X'. Defaults/caps page_size at 500; includes total_count and hospital_count. Backed by the hospital-prices serving snapshot; fails with UNAVAILABLE until the server has opened one.",
+    description: "Each hospital's charges for a (code_type, code), one row per hospital and group of the group_by grouping (default: per billing class, methodology and setting; GROUP_BY_ALL gives one row per hospital), paginated. The billing-class-aware counterpart to list_hospital_code_costs, good for 'which hospital is cheapest for X'. Defaults/caps page_size at 500; includes total_count and hospital_count. Backed by the hospital-prices serving snapshot; fails with UNAVAILABLE until the server has opened one.",
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -857,10 +874,10 @@ const toolDefinitions = {
         },
         code: { type: "string" },
         filter: priceTermsFilterSchema,
+        group_by: groupBySchema,
         order_by: { type: "string", enum: [...PROVIDER_ORDERS], description: "Defaults to relevance when query is set, hospital id otherwise." },
         page_size: { type: "integer" },
         page_token: { type: "string", description: "Opaque next_page_token from a previous response; only valid with the same request fields." },
-        all_terms: { type: "boolean", description: "One row per hospital, its figure over every billing class, methodology and setting. Cannot be combined with filter." },
         min_sample_count: { type: "integer", description: "Only rows backed by at least this many billing records (compared against the sample count's lower bound). Negative values are rejected." },
         query: { type: "string", description: "Optional case-insensitive hospital-name search." }
       },
@@ -870,7 +887,7 @@ const toolDefinitions = {
   get_code_provider_price_distribution: {
     name: "get_code_provider_price_distribution",
     title: "Get provider price distribution for a code",
-    description: "Distribution (min/p10/q1/median/q3/p90/max, std dev, histogram, nearest hospital per percentile) of one figure per hospital for a code, never blending billing classes. Exactly one shape is accepted: all_terms=true with no filter, or all_terms omitted with a filter naming billing_class, methodology and setting (use *_UNSPECIFIED for 'not filed'). Counterpart to get_code_price_distribution. Backed by the hospital-prices serving snapshot; fails with UNAVAILABLE until the server has opened one.",
+    description: "Distribution (min/p10/q1/median/q3/p90/max, std dev, histogram, nearest hospital per percentile) of one figure per hospital for a code, never blending billing classes. The filter must name every term the group_by grouping keeps (all three of billing_class, methodology and setting for the default; the billing class or the methodology for those groupings; nothing for GROUP_BY_ALL), else INVALID_ARGUMENT; use *_UNSPECIFIED for 'not filed'. Counterpart to get_code_price_distribution. Backed by the hospital-prices serving snapshot; fails with UNAVAILABLE until the server has opened one.",
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -885,7 +902,7 @@ const toolDefinitions = {
         },
         code: { type: "string" },
         filter: priceTermsFilterSchema,
-        all_terms: { type: "boolean", description: "Each hospital's all-terms figure. Cannot be combined with filter." },
+        group_by: groupBySchema,
         min_sample_count: { type: "integer", description: "Only hospitals backed by at least this many billing records. Negative values are rejected." },
         bin_count: { type: "integer", description: "Histogram bars. Defaults to 16, max 200." },
         reference_price: { type: "number", description: "When positive, hospitals_below_reference counts hospitals priced strictly below it." },
@@ -1265,6 +1282,7 @@ function createMcpServer(): Server {
           code_type: z.string(),
           code: z.string(),
           filter: priceTermsFilterZod,
+          group_by: groupByZod,
           revision_id: z.string().optional()
         }).parse(request.params.arguments)
 
@@ -1273,6 +1291,7 @@ function createMcpServer(): Server {
           code_type: args.code_type,
           code: args.code,
           filter: toPriceTermsFilter(args.filter),
+          group_by: args.group_by ?? "GROUP_BY_PER_COMBINATION",
           revision_id: args.revision_id ?? ""
         }, { hospital_id: args.hospital_id, code_type: args.code_type, code: args.code })
       }
@@ -1282,6 +1301,7 @@ function createMcpServer(): Server {
           hospital_id: z.string(),
           codes: z.array(z.object({ code_type: z.string(), code: z.string() })).min(1),
           filter: priceTermsFilterZod,
+          group_by: groupByZod,
           revision_id: z.string().optional()
         }).parse(request.params.arguments)
 
@@ -1289,6 +1309,7 @@ function createMcpServer(): Server {
           hospital_id: args.hospital_id,
           codes: args.codes,
           filter: toPriceTermsFilter(args.filter),
+          group_by: args.group_by ?? "GROUP_BY_PER_COMBINATION",
           revision_id: args.revision_id ?? ""
         }, { hospital_id: args.hospital_id, code_count: args.codes.length })
       }
@@ -1329,7 +1350,7 @@ function createMcpServer(): Server {
           order_by: z.enum(PROVIDER_ORDERS).optional(),
           page_size: z.number().int().optional(),
           page_token: z.string().optional(),
-          all_terms: z.boolean().optional(),
+          group_by: groupByZod,
           min_sample_count: z.number().int().optional(),
           query: z.string().optional()
         }).parse(request.params.arguments)
@@ -1341,7 +1362,7 @@ function createMcpServer(): Server {
           order_by: args.order_by ?? "HOSPITAL_PROVIDER_CODE_COST_ORDER_UNSPECIFIED",
           page_size: args.page_size ?? 0,
           page_token: args.page_token ?? "",
-          all_terms: args.all_terms ?? false,
+          group_by: args.group_by ?? "GROUP_BY_PER_COMBINATION",
           min_sample_count: args.min_sample_count ?? 0,
           query: args.query ?? ""
         }, { code_type: args.code_type, code: args.code })
@@ -1352,7 +1373,7 @@ function createMcpServer(): Server {
           code_type: z.string(),
           code: z.string(),
           filter: priceTermsFilterZod,
-          all_terms: z.boolean().optional(),
+          group_by: groupByZod,
           min_sample_count: z.number().int().optional(),
           bin_count: z.number().int().optional(),
           reference_price: z.number().optional(),
@@ -1369,7 +1390,7 @@ function createMcpServer(): Server {
           code_type: args.code_type,
           code: args.code,
           filter: toPriceTermsFilter(args.filter),
-          all_terms: args.all_terms ?? false,
+          group_by: args.group_by ?? "GROUP_BY_PER_COMBINATION",
           min_sample_count: args.min_sample_count ?? 0,
           bin_count: args.bin_count ?? 0,
           reference_price: args.reference_price ?? 0,

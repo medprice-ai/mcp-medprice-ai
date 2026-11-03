@@ -49,6 +49,13 @@ service ProviderCodeCostService {
   // snapshot and never blending billing classes.
   rpc GetCodeProviderPriceDistribution(CodeProviderPriceDistributionRequest)
       returns (CodeProviderPriceDistributionResponse);
+  // Which billing classes, methodologies and settings hospitals file a code
+  // under, and how many hospitals each has: what a caller needs to offer the
+  // choices before listing or distributing one of them, without walking every
+  // row of ListCodeProviderHospitals or counting each combination one call at
+  // a time.
+  rpc GetCodeProviderTermsSummary(GetCodeProviderTermsSummaryRequest)
+      returns (GetCodeProviderTermsSummaryResponse);
 }
 
 // A hospital's charges for a code under one billing class, methodology and
@@ -94,12 +101,16 @@ message HospitalProviderCodeCostsRequest {
   string code_type = 2;
   // e.g. "99213"
   string code = 3;
+  // The grouping of `costs` and the filter on it; unset is one row per set of
+  // terms. The hospital's overall figure is `all_terms` whatever this says.
   PriceTermsFilter filter = 4;
+  GroupBy group_by = 7;
   // Optional. Empty (the common case) answers for the hospital's latest
   // revision, from the snapshot. One of this hospital's revision_ids from
   // ListHospitals (HospitalRecord.revisions) answers for that filing instead,
   // past or latest, from the revision's own provider code-cost file.
   string revision_id = 5;
+  reserved 6;
 }
 
 // NOT_FOUND when the hospital isn't in the snapshot (not a hospital_id, or
@@ -110,8 +121,8 @@ message HospitalProviderCodeCostsResponse {
   string hospital_id = 1;
   string hospital_name = 2;
   string location = 3;
-  // The terms the filter matches, ordered by billing class, methodology and
-  // setting.
+  // The rows of the request's grouping that its filter keeps, ordered by
+  // billing class, methodology and setting.
   repeated ProviderCodeCost costs = 4;
   // The serving snapshot the answer came from; empty when the request named a
   // revision_id.
@@ -125,6 +136,8 @@ message HospitalProviderCodeCostsResponse {
   // The request's revision_id when it named one; empty for the snapshot's
   // (latest) answer.
   string revision_id = 9;
+  // The grouping of `costs`, as the request asked.
+  GroupBy group_by = 10;
 }
 
 message ProviderCodeRef {
@@ -143,6 +156,7 @@ message BatchHospitalProviderCodeCostsRequest {
   // Applies to every code, as in HospitalProviderCodeCostsRequest. It replaces
   // the per-code `methodologies` of HospitalCodeCostService's CodeRef.
   PriceTermsFilter filter = 3;
+  GroupBy group_by = 5;
   // As HospitalProviderCodeCostsRequest.revision_id.
   string revision_id = 4;
 }
@@ -234,6 +248,10 @@ enum HospitalProviderCodeCostOrder {
 message ListCodeProviderHospitalsRequest {
   string code_type = 1;
   string code = 2;
+  // One row per hospital and group of the grouping that the filter keeps: per
+  // set of terms, per billing class, per methodology, or with all terms one
+  // per hospital. A hospital with no row in the groups the filter keeps is not
+  // listed. Unset is per terms with no filter.
   PriceTermsFilter filter = 3;
   HospitalProviderCodeCostOrder order_by = 4;
   // Defaults to 500, capped at 500, like ListHospitalCodeCosts.
@@ -241,10 +259,8 @@ message ListCodeProviderHospitalsRequest {
   // Opaque token from a previous call with the same request fields. Empty
   // for the first page.
   string page_token = 6;
-  // One row per hospital, its figure over every billing class, methodology
-  // and setting, instead of one per set of terms. INVALID_ARGUMENT with a
-  // filter.
-  bool all_terms = 7;
+  reserved 7;
+  GroupBy group_by = 10;
   // Only rows whose sample_count_sum_min is at least this; 0 (the default)
   // keeps every row. INVALID_ARGUMENT when negative.
   int64 min_sample_count = 8;
@@ -255,9 +271,9 @@ message ListCodeProviderHospitalsRequest {
   string query = 9;
 }
 
-// One hospital's charges for a code under one billing class, methodology and
-// setting. A hospital charging the code under several appears once for each,
-// unless the request asked for all-terms figures.
+// One hospital's charges for a code under one group of the request's grouping:
+// one set of terms, one billing class, one methodology or all terms. A hospital
+// with several groups appears once for each.
 message HospitalProviderCodeCost {
   string hospital_id = 1;
   string hospital_name = 2;
@@ -270,20 +286,18 @@ message ListCodeProviderHospitalsResponse {
   repeated HospitalProviderCodeCost hospitals = 1;
   // Empty when there are no more results.
   string next_page_token = 2;
-  // Matching rows across every page. Without all_terms that is one row per
-  // hospital and set of terms, so a hospital charging the code under several
-  // counts once for each, and a page can hold several rows of one hospital;
-  // it counts hospitals only with all_terms, or with a filter naming a
-  // billing class, methodology and setting.
+  // Matching rows across every page: one per hospital and group, so a hospital
+  // with several groups counts once for each, and a page can hold several rows
+  // of one hospital; it counts hospitals only when the query leaves it one
+  // row (all terms, or a filter naming every term the grouping keeps).
   int32 total_count = 3;
   string snapshot_id = 4;
   // The requested code in canonical form.
   string code_type = 5;
   string code = 6;
-  // Distinct hospitals among the total_count rows: equal to total_count
-  // with all_terms or a filter naming a billing class, methodology and
-  // setting, since a hospital then has one row; otherwise a hospital
-  // charging the code under several sets of terms counts once.
+  // Distinct hospitals among the total_count rows: equal to total_count when
+  // a hospital has one row, otherwise a hospital with several groups counts
+  // once.
   int32 hospital_count = 7;
   // The code's plain-English description from the code catalog, as
   // HospitalDescription's; unset until the AI description job has
@@ -292,22 +306,21 @@ message ListCodeProviderHospitalsResponse {
   // Unset when ai_description is, and for descriptions stored before
   // provenance was recorded.
   optional LlmProvenance ai_description_provenance = 9;
+  // The grouping of the rows, as the request asked.
+  GroupBy group_by = 10;
 }
 
-// A distribution needs exactly one value per hospital, so the request takes
-// one of two shapes, and anything else is INVALID_ARGUMENT (naming the terms
-// missing): all_terms with no filter, each hospital's all-terms figure (the
-// blended "overall" one); or no all_terms and a filter naming all three of
-// billing class, methodology and setting, each hospital's figure under those
-// terms. "Not filed" counts as naming a term: set the field to its
-// *_UNSPECIFIED value. Billing classes are never combined (#1543).
+// A distribution needs exactly one value per hospital, so the filter must name
+// every term the grouping keeps (all three per terms; the billing class, or the
+// methodology, by one of those; nothing for all terms), else INVALID_ARGUMENT
+// naming the terms missing. "Not filed" counts as naming a term: set the field
+// to its *_UNSPECIFIED value. Each hospital's figure is its row of that group.
 message CodeProviderPriceDistributionRequest {
   string code_type = 1;
   string code = 2;
-  // Must name a billing class, methodology and setting unless all_terms.
   PriceTermsFilter filter = 3;
-  // Each hospital's all-terms figure. INVALID_ARGUMENT with a filter.
-  bool all_terms = 4;
+  reserved 4;
+  GroupBy group_by = 10;
   // Only hospitals whose figure has a sample_count_sum_min of at least this;
   // 0 keeps every hospital. INVALID_ARGUMENT when negative.
   int64 min_sample_count = 5;
@@ -330,4 +343,47 @@ message CodeProviderPriceDistributionResponse {
   // The requested code in canonical form.
   string code_type = 3;
   string code = 4;
+  // The grouping the figures were taken at, as the request asked.
+  GroupBy group_by = 5;
+}
+
+message GetCodeProviderTermsSummaryRequest {
+  string code_type = 1;
+  string code = 2;
+  // Only hospitals whose figure under the terms has a sample_count_sum_min of
+  // at least this; 0 keeps every hospital. The same rule as
+  // ListCodeProviderHospitals' min_sample_count. INVALID_ARGUMENT when
+  // negative.
+  int64 min_sample_count = 3;
+  // What each entry of the response is a group of: one set of terms (the
+  // default), one billing class, one methodology, or with all terms one entry
+  // for every hospital that charges the code.
+  GroupBy group_by = 4;
+}
+
+// The hospitals that charge the code under one group of the request's
+// grouping.
+message ProviderTermsCount {
+  PriceTerms terms = 1;
+  // Distinct hospitals with a priced row under exactly these terms: the
+  // total_count of ListCodeProviderHospitals with a filter naming all three.
+  int32 hospital_count = 2;
+}
+
+message GetCodeProviderTermsSummaryResponse {
+  // One entry per group any hospital files the code under, ordered by billing
+  // class (none filed first), methodology and setting. Empty when no
+  // hospital charges the code. A hospital that files several sets of terms is
+  // counted in each, so don't sum the entries' hospital_count: use
+  // hospital_count below for the number of distinct hospitals.
+  repeated ProviderTermsCount terms = 1;
+  // Distinct hospitals charging the code under any terms: the total_count of
+  // ListCodeProviderHospitals with the all-terms grouping.
+  int32 hospital_count = 2;
+  string snapshot_id = 3;
+  // The requested code in canonical form.
+  string code_type = 4;
+  string code = 5;
+  // The grouping of the entries, as the request asked.
+  GroupBy group_by = 6;
 }
