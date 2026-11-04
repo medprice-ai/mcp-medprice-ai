@@ -12,6 +12,17 @@ import { toNodeHandler } from "@modelcontextprotocol/node"
 
 import { downgradeLegacyEnvelope } from "./protocolDowngrade"
 
+import {
+  batchGrouping,
+  legacyGrouping,
+  legacyMethodologyZod,
+  toBatchHospitalCostResults,
+  toCodePriceDistributionResponse,
+  toHospitalCostResult,
+  toListHospitalCodeCostsResponse,
+  toProviderOrderBy
+} from "./legacyCostMapping"
+
 import * as http from "http"
 
 const grpcHost = process.env.GRPC_HOST
@@ -489,7 +500,19 @@ const toPriceTermsFilter = (f: z.infer<typeof priceTermsFilterZod>) => {
   return Object.fromEntries(Object.entries(f).filter(([, v]) => v !== undefined))
 }
 
-const callProviderRpc = async (tool: string, method: string, request: object, logFields: Record<string, unknown>) => {
+const toolResult = (response: unknown) => {
+  const structuredContent = stripSyntheticOneofs(response)
+  return {
+    structuredContent,
+    content: [{
+      type: "text" as const,
+      text: JSON.stringify(structuredContent, null, 2)
+    }]
+  }
+}
+
+// Calls a ProviderCodeCostService RPC and returns the raw response.
+const callProviderRpcRaw = async (tool: string, method: string, request: object, logFields: Record<string, unknown>): Promise<any> => {
   log("INFO", "grpc request", { tool, ...logFields })
   const grpcStart = Date.now()
 
@@ -507,22 +530,17 @@ const callProviderRpc = async (tool: string, method: string, request: object, lo
   }
 
   log("INFO", "grpc response", { tool, ...logFields, duration_ms: Date.now() - grpcStart })
-  const structuredContent = stripSyntheticOneofs(response)
-
-  return {
-    structuredContent,
-    content: [{
-      type: "text" as const,
-      text: JSON.stringify(structuredContent, null, 2)
-    }]
-  }
+  return response
 }
+
+const callProviderRpc = async (tool: string, method: string, request: object, logFields: Record<string, unknown>) =>
+  toolResult(await callProviderRpcRaw(tool, method, request, logFields))
 
 const toolDefinitions = {
   get_hospital_chargemaster_cost: {
     name: "get_hospital_chargemaster_cost",
     title: "Get hospital chargemaster cost",
-    description: "Lookup hospital chargemaster cost",
+    description: "Looks up one hospital's cost stats (min/max/avg/median/std_dev and sample counts) for a code_type/code: a single all-terms figure, or one entry per requested methodology. Served from the hospital-prices serving snapshot, which pools exactly (exact medians), so figures can differ slightly from earlier results of this tool. Like those, each figure still combines facility and professional charges (and all settings) into one number; use get_hospital_provider_code_costs for a per-billing-class breakdown instead. Fails with UNAVAILABLE until the server has opened a snapshot. Fields without a counterpart in the snapshot data are left empty (description.methodology_note).",
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -566,7 +584,7 @@ const toolDefinitions = {
   batch_get_hospital_chargemaster_cost: {
     name: "batch_get_hospital_chargemaster_cost",
     title: "Batch get hospital chargemaster costs",
-    description: "Looks up cost stats for several (code_type, code) pairs at one hospital (identified by hospital_id) in a single call - the batch counterpart to get_hospital_chargemaster_cost. Use this instead of calling get_hospital_chargemaster_cost once per code when pricing a fixed set of codes at one hospital (e.g. cross-linking a curated list of procedures on a hospital's page). Capped at 100 codes per call; a request over that is rejected with INVALID_ARGUMENT rather than silently truncated.",
+    description: "Looks up cost stats for several (code_type, code) pairs at one hospital (identified by hospital_id) in a single call - the batch counterpart to get_hospital_chargemaster_cost. Use this instead of calling get_hospital_chargemaster_cost once per code when pricing a fixed set of codes at one hospital (e.g. cross-linking a curated list of procedures on a hospital's page). Capped at 100 codes per call; a request over that is rejected with INVALID_ARGUMENT rather than silently truncated. Served from the hospital-prices serving snapshot, which pools exactly (exact medians), so figures can differ slightly from earlier results of this tool. Like those, each figure still combines facility and professional charges (and all settings) into one number; use batch_get_hospital_provider_code_costs for a per-billing-class breakdown instead.",
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -648,7 +666,7 @@ const toolDefinitions = {
   list_hospital_code_costs: {
     name: "list_hospital_code_costs",
     title: "List hospital costs for a billing code",
-    description: "Returns cost stats for every hospital with a matching chargemaster entry for a code_type/code. Use this instead of calling get_hospital_chargemaster_cost once per hospital when comparing prices for the same procedure across hospitals (e.g. \"which hospital has the cheapest MS-DRG 652?\"). Defaults to returning every matching hospital (currently at most a few hundred) in one call. If the response's next_page_token is non-empty, the result set was truncated: call this tool again passing that exact value as page_token to get the next page, and keep doing so until next_page_token is empty - do not stop after one page and conclude a hospital has no data for this code. The response's total_count field (total across all pages) can be compared against how many results you've accumulated so far as a completeness check.",
+    description: "Returns cost stats for every hospital with a matching chargemaster entry for a code_type/code. Use this instead of calling get_hospital_chargemaster_cost once per hospital when comparing prices for the same procedure across hospitals (e.g. \"which hospital has the cheapest MS-DRG 652?\"). Defaults to returning every matching hospital (currently at most a few hundred) in one call. If the response's next_page_token is non-empty, the result set was truncated: call this tool again passing that exact value as page_token to get the next page, and keep doing so until next_page_token is empty - do not stop after one page and conclude a hospital has no data for this code. The response's total_count field (total across all pages) can be compared against how many results you've accumulated so far as a completeness check. Served from the hospital-prices serving snapshot, which pools exactly (exact medians), so figures can differ slightly from earlier results of this tool. Like those, each figure still combines facility and professional charges (and all settings) into one number; use list_code_provider_hospitals for a per-billing-class breakdown instead. page_tokens from before this change are not valid.",
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -720,7 +738,7 @@ const toolDefinitions = {
   get_code_price_distribution: {
     name: "get_code_price_distribution",
     title: "Get price distribution for a billing code",
-    description: "Returns the distribution of every hospital's price for a code_type/code, computed server-side: min/p10/q1/median/q3/p90/max, standard deviation, a histogram, and the real hospital nearest each percentile. Use this instead of paging through list_hospital_code_costs when you want to know how prices spread across hospitals (e.g. \"is $12k high for MS-DRG 788?\" - pass reference_price to get the number of hospitals priced below it). All figures are in terms of the chosen statistic (default: each hospital's average price).",
+    description: "Returns the distribution of every hospital's price for a code_type/code, computed server-side: min/p10/q1/median/q3/p90/max, standard deviation, a histogram, and the real hospital nearest each percentile. Use this instead of paging through list_hospital_code_costs when you want to know how prices spread across hospitals (e.g. \"is $12k high for MS-DRG 788?\" - pass reference_price to get the number of hospitals priced below it). All figures are in terms of the chosen statistic (default: each hospital's average price). Served from the hospital-prices serving snapshot, which pools exactly (exact medians), so figures can differ slightly from earlier results of this tool. Like those, each figure still combines facility and professional charges (and all settings) into one number; use get_code_provider_price_distribution for a per-billing-class breakdown instead. With statistic MIN/MAX the figure is now the hospital's lowest/highest charge itself, not widened by the filing's per-item minimum/maximum.",
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1063,39 +1081,24 @@ function createMcpServer(): Server {
           hospital_id: z.string(),
           code_type: z.string(),
           code: z.string(),
-          methodologies: z.array(z.string()).optional(),
+          methodologies: z.array(legacyMethodologyZod).optional(),
           revision_id: z.string().optional()
         }).parse(request.params.arguments)
 
-        log("INFO", "grpc request", { tool: "get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_type: args.code_type, code: args.code })
-        const grpcStart = Date.now()
+        const methodologies = args.methodologies ?? []
 
-        let response: unknown
-        try {
-          response = await new Promise((resolve, reject) => {
-            client.GetHospitalCodeCost(
-              { hospital_id: args.hospital_id, code_type: args.code_type, code: args.code, methodologies: args.methodologies ?? [], revision_id: args.revision_id ?? "" },
-              (err: any, resp: any) => {
-                if (err) reject(err)
-                else resolve(resp)
-              }
-            )
-          })
-        } catch (err) {
-          log("ERROR", "grpc request failed", { tool: "get_hospital_chargemaster_cost", code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart, error: String(err) })
-          throw err
-        }
+        // No methodologies: the all-terms figure (GROUP_BY_ALL). Otherwise one
+        // unfiltered GROUP_BY_METHODOLOGY call returns every methodology's row,
+        // from which the requested ones are picked in request order.
+        const response = await callProviderRpcRaw("get_hospital_chargemaster_cost", "GetHospitalProviderCodeCosts", {
+          hospital_id: args.hospital_id,
+          code_type: args.code_type,
+          code: args.code,
+          group_by: methodologies.length ? "GROUP_BY_METHODOLOGY" : "GROUP_BY_ALL",
+          revision_id: args.revision_id ?? ""
+        }, { hospital_id: args.hospital_id, code_type: args.code_type, code: args.code })
 
-        log("INFO", "grpc response", { tool: "get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
-        const structuredContent = stripSyntheticOneofs(response)
-
-        return {
-          structuredContent,
-          content: [{
-            type: "text",
-            text: JSON.stringify(structuredContent, null, 2)
-          }]
-        }
+        return toolResult(toHospitalCostResult(response, methodologies))
       }
 
       if (request.params.name === "batch_get_hospital_chargemaster_cost") {
@@ -1104,44 +1107,19 @@ function createMcpServer(): Server {
           codes: z.array(z.object({
             code_type: z.string(),
             code: z.string(),
-            methodologies: z.array(z.string()).optional()
+            methodologies: z.array(legacyMethodologyZod).optional()
           })).min(1),
           revision_id: z.string().optional()
         }).parse(request.params.arguments)
 
-        log("INFO", "grpc request", { tool: "batch_get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_count: args.codes.length })
-        const grpcStart = Date.now()
+        const response = await callProviderRpcRaw("batch_get_hospital_chargemaster_cost", "BatchGetHospitalProviderCodeCosts", {
+          hospital_id: args.hospital_id,
+          codes: args.codes.map((c) => ({ code_type: c.code_type, code: c.code })),
+          group_by: batchGrouping(args.codes),
+          revision_id: args.revision_id ?? ""
+        }, { hospital_id: args.hospital_id, code_count: args.codes.length })
 
-        let response: unknown
-        try {
-          response = await new Promise((resolve, reject) => {
-            client.BatchGetHospitalCodeCost(
-              {
-                hospital_id: args.hospital_id,
-                codes: args.codes.map((c) => ({ code_type: c.code_type, code: c.code, methodologies: c.methodologies ?? [] })),
-                revision_id: args.revision_id ?? ""
-              },
-              (err: any, resp: any) => {
-                if (err) reject(err)
-                else resolve(resp)
-              }
-            )
-          })
-        } catch (err) {
-          log("ERROR", "grpc request failed", { tool: "batch_get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_count: args.codes.length, duration_ms: Date.now() - grpcStart, error: String(err) })
-          throw err
-        }
-
-        log("INFO", "grpc response", { tool: "batch_get_hospital_chargemaster_cost", hospital_id: args.hospital_id, code_count: args.codes.length, duration_ms: Date.now() - grpcStart })
-        const structuredContent = stripSyntheticOneofs(response)
-
-        return {
-          structuredContent,
-          content: [{
-            type: "text",
-            text: JSON.stringify(structuredContent, null, 2)
-          }]
-        }
+        return toolResult(toBatchHospitalCostResults(response, args.codes))
       }
 
       if (request.params.name === "list_hospitals") {
@@ -1186,7 +1164,7 @@ function createMcpServer(): Server {
         const args = z.object({
           code_type: z.string(),
           code: z.string(),
-          methodology: z.string().optional(),
+          methodology: legacyMethodologyZod.optional(),
           min_sample_count: z.number().int().optional(),
           bin_count: z.number().int().optional(),
           reference_price: z.number().optional(),
@@ -1199,50 +1177,24 @@ function createMcpServer(): Server {
           ]).optional()
         }).parse(request.params.arguments)
 
-        log("INFO", "grpc request", { tool: "get_code_price_distribution", code_type: args.code_type, code: args.code })
-        const grpcStart = Date.now()
+        const response = await callProviderRpcRaw("get_code_price_distribution", "GetCodeProviderPriceDistribution", {
+          code_type: args.code_type,
+          code: args.code,
+          ...legacyGrouping(args.methodology),
+          min_sample_count: args.min_sample_count ?? 0,
+          bin_count: args.bin_count ?? 0,
+          reference_price: args.reference_price ?? 0,
+          statistic: args.statistic ?? "PRICE_STATISTIC_UNSPECIFIED"
+        }, { code_type: args.code_type, code: args.code })
 
-        let response: unknown
-        try {
-          response = await new Promise((resolve, reject) => {
-            client.GetCodePriceDistribution(
-              {
-                code_type: args.code_type,
-                code: args.code,
-                methodology: args.methodology ?? "",
-                min_sample_count: args.min_sample_count ?? 0,
-                bin_count: args.bin_count ?? 0,
-                reference_price: args.reference_price ?? 0,
-                statistic: args.statistic ?? "PRICE_STATISTIC_UNSPECIFIED"
-              },
-              (err: any, resp: any) => {
-                if (err) reject(err)
-                else resolve(resp)
-              }
-            )
-          })
-        } catch (err) {
-          log("ERROR", "grpc request failed", { tool: "get_code_price_distribution", code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart, error: String(err) })
-          throw err
-        }
-
-        log("INFO", "grpc response", { tool: "get_code_price_distribution", code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
-        const structuredContent = stripSyntheticOneofs(response)
-
-        return {
-          structuredContent,
-          content: [{
-            type: "text",
-            text: JSON.stringify(structuredContent, null, 2)
-          }]
-        }
+        return toolResult(toCodePriceDistributionResponse(response))
       }
 
       if (request.params.name === "list_hospital_code_costs") {
         const args = z.object({
           code_type: z.string(),
           code: z.string(),
-          methodology: z.string().optional(),
+          methodology: legacyMethodologyZod.optional(),
           page_size: z.number().int().optional(),
           page_token: z.string().optional(),
           min_sample_count: z.number().int().optional(),
@@ -1268,35 +1220,18 @@ function createMcpServer(): Server {
           ]).optional()
         }).parse(request.params.arguments)
 
-        log("INFO", "grpc request", { tool: "list_hospital_code_costs", code_type: args.code_type, code: args.code })
-        const grpcStart = Date.now()
+        const response = await callProviderRpcRaw("list_hospital_code_costs", "ListCodeProviderHospitals", {
+          code_type: args.code_type,
+          code: args.code,
+          ...legacyGrouping(args.methodology),
+          order_by: toProviderOrderBy(args.order_by ?? "HOSPITAL_COST_ORDER_UNSPECIFIED"),
+          page_size: args.page_size ?? 0,
+          page_token: args.page_token ?? "",
+          min_sample_count: args.min_sample_count ?? 0,
+          query: args.query ?? ""
+        }, { code_type: args.code_type, code: args.code })
 
-        let response: unknown
-        try {
-          response = await new Promise((resolve, reject) => {
-            client.ListHospitalCodeCosts(
-              { code_type: args.code_type, code: args.code, methodology: args.methodology ?? "", page_size: args.page_size ?? 0, page_token: args.page_token ?? "", min_sample_count: args.min_sample_count ?? 0, query: args.query ?? "", order_by: args.order_by ?? "HOSPITAL_COST_ORDER_UNSPECIFIED" },
-              (err: any, resp: any) => {
-                if (err) reject(err)
-                else resolve(resp)
-              }
-            )
-          })
-        } catch (err) {
-          log("ERROR", "grpc request failed", { tool: "list_hospital_code_costs", code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart, error: String(err) })
-          throw err
-        }
-
-        log("INFO", "grpc response", { tool: "list_hospital_code_costs", code_type: args.code_type, code: args.code, duration_ms: Date.now() - grpcStart })
-        const structuredContent = stripSyntheticOneofs(response)
-
-        return {
-          structuredContent,
-          content: [{
-            type: "text",
-            text: JSON.stringify(structuredContent, null, 2)
-          }]
-        }
+        return toolResult(toListHospitalCodeCostsResponse(response, args.methodology))
       }
 
       if (request.params.name === "get_hospital_provider_code_costs") {

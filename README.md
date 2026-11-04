@@ -79,6 +79,8 @@ and returns:
 
 Each hospital's `revisions` array now includes a `revision_id` per revision (in addition to `revision_date` and `has_payer_data`) — pass it as `get_hospital_chargemaster_cost`'s `revision_id` to price that specific past revision instead of the hospital's latest one.
 
+> **Data source.** `get_hospital_chargemaster_cost`, `batch_get_hospital_chargemaster_cost`, `list_hospital_code_costs` and `get_code_price_distribution` are served from the hospital-prices serving snapshot (`ProviderCodeCostService`), with their input and output schemas unchanged. The snapshot pools exactly (exact medians), so figures can differ slightly from earlier results. Each figure is still one all-terms (or one per-methodology) number that combines facility and professional charges; use the `*provider*` tools (`get_hospital_provider_code_costs` etc.) for a per-billing-class breakdown. Differences: `methodology_note` is always empty; `MIN`/`MAX` are the charges' own extremes (no longer widened by the filing's per-item minimum/maximum); `page_token`s issued before the change are invalid.
+
 #### `get_hospital_chargemaster_cost`
 
 - **`hospital_id`** (required) — opaque hospital identifier from `list_hospitals`.

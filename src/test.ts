@@ -2,9 +2,10 @@ import * as grpc from "@grpc/grpc-js"
 
 import * as protoLoader from "@grpc/proto-loader"
 
+// Smoke test for gRPC connectivity: GRPC_HOST=<host:port> HOSPITAL_ID=<id from list_hospitals> npx tsx src/test.ts
 const packageDefinition =
   protoLoader.loadSync(
-    "proto/hospital_code_cost.proto",
+    "proto/provider_code_cost.proto",
     {
       keepCase: true,
 
@@ -25,7 +26,7 @@ const proto =
 
 const service =
   proto.ai.medprice.api
-    .HospitalCodeCostService
+    .ProviderCodeCostService
 
 const grpcCredentials =
   process.env.GRPC_INSECURE === "true"
@@ -41,15 +42,17 @@ const client =
 
   )
 
-client.GetHospitalCodeCost(
+client.GetHospitalProviderCodeCosts(
 
   {
+
+    hospital_id: process.env.HOSPITAL_ID ?? "",
 
     code_type: "MS-DRG",
 
     code: "652",
 
-    methodologies: []
+    group_by: "GROUP_BY_ALL"
 
   },
 
