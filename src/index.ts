@@ -555,13 +555,19 @@ const GROUP_BYS = [
 
 const groupByZod = z.enum(GROUP_BYS).optional()
 
-// Payer rates are not stored under FACILITY_PLUS_PROFESSIONAL (INVALID_ARGUMENT upstream).
-const PAYER_GROUP_BYS = GROUP_BYS.filter(g => g !== "GROUP_BY_FACILITY_PLUS_PROFESSIONAL")
-const payerGroupByZod = z.enum(PAYER_GROUP_BYS as [string, ...string[]]).optional()
+// Payer RPCs take their own enum (upstream #2105): same numbers as the shared
+// GroupBy's first four, PAYER_-prefixed names, no FACILITY_PLUS_PROFESSIONAL.
+const PAYER_GROUP_BYS = [
+  "PAYER_GROUP_BY_PER_COMBINATION",
+  "PAYER_GROUP_BY_BILLING_CLASS",
+  "PAYER_GROUP_BY_METHODOLOGY",
+  "PAYER_GROUP_BY_ALL"
+] as const
+const payerGroupByZod = z.enum(PAYER_GROUP_BYS).optional()
 const payerGroupBySchema = {
   type: "string",
-  enum: PAYER_GROUP_BYS,
-  description: "How a hospital's rates are grouped (default GROUP_BY_PER_COMBINATION: per billing class + methodology + setting). The filter must name every term the grouping keeps (GROUP_BY_ALL with no filter, GROUP_BY_BILLING_CLASS plus a billing_class, GROUP_BY_METHODOLOGY plus a methodology, per-combination all three), else INVALID_ARGUMENT. GROUP_BY_FACILITY_PLUS_PROFESSIONAL is not available for payer rates."
+  enum: [...PAYER_GROUP_BYS],
+  description: "How a hospital's rates are grouped (default PAYER_GROUP_BY_PER_COMBINATION: per billing class + methodology + setting). The filter must name every term the grouping keeps (PAYER_GROUP_BY_ALL with no filter, PAYER_GROUP_BY_BILLING_CLASS plus a billing_class, PAYER_GROUP_BY_METHODOLOGY plus a methodology, per-combination all three), else INVALID_ARGUMENT."
 }
 
 const groupBySchema = {
@@ -1133,7 +1139,7 @@ const toolDefinitions = {
   get_code_payer_price_distribution: {
     name: "get_code_payer_price_distribution",
     title: "Get one payer's price distribution for a code",
-    description: "Distribution (min/p10/q1/median/q3/p90/max, std dev, histogram, nearest hospital per percentile) of one payer's rate for a (code_type, code) across hospitals, one figure per hospital; the payer-specific counterpart to get_code_provider_price_distribution. The filter must name every term the group_by grouping keeps, else INVALID_ARGUMENT. Pass plan_slug (from list_payer_plans) to distribute one plan's rates alone; MEDIAN is then only valid with GROUP_BY_PER_COMBINATION. Backed by the hospital-prices serving snapshot; fails with UNAVAILABLE until the server has opened one.",
+    description: "Distribution (min/p10/q1/median/q3/p90/max, std dev, histogram, nearest hospital per percentile) of one payer's rate for a (code_type, code) across hospitals, one figure per hospital; the payer-specific counterpart to get_code_provider_price_distribution. The filter must name every term the group_by grouping keeps, else INVALID_ARGUMENT. Pass plan_slug (from list_payer_plans) to distribute one plan's rates alone; MEDIAN is then only valid with PAYER_GROUP_BY_PER_COMBINATION. Backed by the hospital-prices serving snapshot; fails with UNAVAILABLE until the server has opened one.",
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1786,7 +1792,7 @@ function createMcpServer(): Server {
           code_type: args.code_type,
           code: args.code,
           payer_slug: args.payer_slug,
-          group_by: args.group_by ?? "GROUP_BY_PER_COMBINATION",
+          group_by: args.group_by ?? "PAYER_GROUP_BY_PER_COMBINATION",
           filter: toPriceTermsFilter(args.filter),
           state: args.state ?? "",
           bin_count: args.bin_count ?? 0,
@@ -1807,7 +1813,7 @@ function createMcpServer(): Server {
         return callProviderRpc("get_code_payers_price_distribution", "GetCodePayersPriceDistribution", {
           code_type: args.code_type,
           code: args.code,
-          group_by: args.group_by ?? "GROUP_BY_PER_COMBINATION",
+          group_by: args.group_by ?? "PAYER_GROUP_BY_PER_COMBINATION",
           filter: toPriceTermsFilter(args.filter),
           state: args.state ?? "",
           bin_count: args.bin_count ?? 0,
@@ -1836,7 +1842,7 @@ function createMcpServer(): Server {
 
         return callProviderRpc("get_payer", "GetPayer", {
           payer_slug: args.payer_slug,
-          group_by: args.group_by ?? "GROUP_BY_PER_COMBINATION",
+          group_by: args.group_by ?? "PAYER_GROUP_BY_PER_COMBINATION",
           filter: toPriceTermsFilter(args.filter),
           top_code_count: args.top_code_count ?? 0,
           state: args.state ?? ""

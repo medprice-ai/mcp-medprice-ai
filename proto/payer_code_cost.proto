@@ -237,15 +237,14 @@ message CodePayerPriceDistributionRequest {
   string code = 2;
   // A PayerSummary.payer_slug, e.g. "aetna".
   string payer_slug = 3;
-  // How a hospital's rates are grouped, as on the provider RPCs
-  // (price_terms.proto's GroupBy): a distribution has one figure per hospital,
+  // How a hospital's rates are grouped, as on the provider RPCs (see
+  // PayerGroupBy): a distribution has one figure per hospital,
   // so the filter must name every term the grouping keeps (ALL with no filter,
   // BILLING_CLASS plus a billing class, METHODOLOGY plus a methodology,
   // PER_COMBINATION, the default, all three), else INVALID_ARGUMENT. The
   // hospital's plans are pooled, from the stored pool of that grouping, so
-  // every statistic is exact. FACILITY_PLUS_PROFESSIONAL is INVALID_ARGUMENT:
-  // payer rates are not stored under it.
-  GroupBy group_by = 10;
+  // every statistic is exact.
+  PayerGroupBy group_by = 10;
   // Names the terms of the grouping (see group_by) the figures are for.
   PriceTermsFilter filter = 4;
   // Histogram bins; 0 means 16. INVALID_ARGUMENT above 200 or when negative.
@@ -278,9 +277,8 @@ message CodePayersPriceDistributionRequest {
   // As on GetCodePayerPriceDistribution: the filter names every term the
   // grouping keeps (ALL with none, BILLING_CLASS plus a billing class,
   // METHODOLOGY plus a methodology, PER_COMBINATION all three), else
-  // INVALID_ARGUMENT; FACILITY_PLUS_PROFESSIONAL is INVALID_ARGUMENT too. Each
-  // hospital's row is its stored pool of the payer's plans.
-  GroupBy group_by = 3;
+  // INVALID_ARGUMENT. Each hospital's row is its stored pool of the payer's plans.
+  PayerGroupBy group_by = 3;
   PriceTermsFilter filter = 4;
   // Optional two-letter USPS code (as on ListCodePayers): only hospitals with
   // a location in that state count.
@@ -405,13 +403,11 @@ message GetPayerRequest {
   // A PayerListing.payer_slug.
   string payer_slug = 1;
   // How the payer's top codes are grouped, and which groups are kept, as for
-  // the provider RPCs (see GroupBy in price_terms.proto): the default lists a
+  // the provider RPCs (see PayerGroupBy): the default lists a
   // code once per billing class, methodology and setting; BILLING_CLASS and
   // METHODOLOGY once per billing class (methodology); ALL once. The filter may
   // name only the terms the grouping keeps (else INVALID_ARGUMENT).
-  // FACILITY_PLUS_PROFESSIONAL is INVALID_ARGUMENT: a payer's rates aren't
-  // added across billing classes.
-  GroupBy group_by = 2;
+  PayerGroupBy group_by = 2;
   PriceTermsFilter filter = 3;
   // How many top codes to return. Defaults to 10 (0), capped at 100.
   int32 top_code_count = 4;
@@ -624,4 +620,27 @@ message ListPayerHospitalsResponse {
   // Empty when there are no more results.
   string next_page_token = 3;
   string snapshot_id = 4;
+}
+
+// How the payer RPCs group a hospital's rates (#2101's follow-up): the groupings
+// of price_terms.proto's GroupBy that payer rates are stored under, with the
+// same numbers, so a client keeps its wire values. The two it leaves out are
+// provider-only, so they cannot be sent here: FACILITY_PLUS_PROFESSIONAL (4;
+// payer rates aren't added across billing classes) and BILLING_CLASS_METHODOLOGY
+// (5; payer rates have no such pool). An old client sending 4 or 5 gets
+// INVALID_ARGUMENT (unknown group_by). The value names carry a PAYER_ prefix
+// because enum values are scoped to the package, where GroupBy already has
+// GROUP_BY_*.
+enum PayerGroupBy {
+  // One row per billing class, methodology and setting, the default.
+  PAYER_GROUP_BY_PER_COMBINATION = 0;
+  // One row per billing class, pooled over methodologies and settings.
+  PAYER_GROUP_BY_BILLING_CLASS = 1;
+  // One row per methodology, pooled over billing classes and settings.
+  PAYER_GROUP_BY_METHODOLOGY = 2;
+  // One row, pooled over every set of terms; no terms set. Blends billing
+  // classes.
+  PAYER_GROUP_BY_ALL = 3;
+  reserved 4, 5;
+  reserved "GROUP_BY_FACILITY_PLUS_PROFESSIONAL";
 }
