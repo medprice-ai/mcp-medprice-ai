@@ -55,6 +55,23 @@ enum CodeSort {
   CODE_SORT_MEDIAN_PRICE_ASC = 8;
   // Widest spread between hospitals first (CodeSummary.price_spread).
   CODE_SORT_PRICE_SPREAD_DESC = 9;
+  // Highest facility-class median price first (CodeSummary.facility_median_price,
+  // #2144). Codes no hospital files a facility fee for, or with fewer facility
+  // hospitals than ListCodesRequest.min_class_hospital_count, sort last.
+  CODE_SORT_FACILITY_MEDIAN_PRICE_DESC = 10;
+  // Highest professional-class median price first, as above (professional_*).
+  CODE_SORT_PROFESSIONAL_MEDIAN_PRICE_DESC = 11;
+  // Codes whose combined fee is mostly facility first: highest facility_share.
+  // Codes missing either class, or with fewer hospitals than
+  // min_class_hospital_count in either, sort last.
+  CODE_SORT_FACILITY_SHARE_DESC = 12;
+  // Mostly professional first: lowest facility_share; the rest sort last as above.
+  CODE_SORT_FACILITY_SHARE_ASC = 13;
+  // Lowest facility-class median price first; the rest sort last as for
+  // CODE_SORT_FACILITY_MEDIAN_PRICE_DESC (#2144).
+  CODE_SORT_FACILITY_MEDIAN_PRICE_ASC = 14;
+  // Lowest professional-class median price first, as above.
+  CODE_SORT_PROFESSIONAL_MEDIAN_PRICE_ASC = 15;
 }
 
 message CodeSummary {
@@ -110,4 +127,19 @@ message CodeSummary {
   // When the snapshot the figures come from was published; they are
   // recomputed with each snapshot.
   optional google.protobuf.Timestamp priced_at = 13;
+  // The code's network-wide median price under each billing class (#2144): the
+  // median over hospitals of each hospital's average price for the code under
+  // that class, the figure GetCodeProviderPriceDistribution gives with
+  // GROUP_BY_BILLING_CLASS and a filter naming it. Network-wide like
+  // median_price, whatever hospital_id says. Unset when no hospital files the
+  // class.
+  optional double facility_median_price = 14;
+  optional double professional_median_price = 15;
+  // Hospitals behind each class's median; unset with it.
+  optional int32 facility_hospital_count = 16;
+  optional int32 professional_hospital_count = 17;
+  // facility_median_price / (facility_median_price + professional_median_price)
+  // as a percent with 2 decimals, so the professional share is 100 minus it.
+  // Unset unless both medians are.
+  optional double facility_share = 18;
 }

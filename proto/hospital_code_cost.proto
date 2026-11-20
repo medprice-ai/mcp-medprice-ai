@@ -64,6 +64,14 @@ message ListCodesRequest {
   // page_token is only valid with the same hospital_id it was issued for,
   // same as query/code_type/sort.
   string hospital_id = 6;
+  // Optional minimum (#2144, 0 = none) of hospitals behind a billing class's
+  // median for the class orders (CODE_SORT_FACILITY_MEDIAN_PRICE_DESC,
+  // CODE_SORT_PROFESSIONAL_MEDIAN_PRICE_DESC: that class's count;
+  // CODE_SORT_FACILITY_SHARE_DESC/_ASC: both classes'). A code below it sorts
+  // with the codes that lack the figure, last, and is still listed and counted.
+  // Without it a code one hospital files tops the share lists. Ignored by every
+  // other order, and with hospital_id. Negative is INVALID_ARGUMENT.
+  int32 min_class_hospital_count = 7;
 }
 
 message ListCodesResponse {

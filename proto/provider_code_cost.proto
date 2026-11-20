@@ -2,6 +2,7 @@ syntax = "proto3";
 package ai.medprice.api;
 
 import "code_summary.proto";
+import "google/protobuf/timestamp.proto";
 import "llm_provenance.proto";
 import "price_distribution.proto";
 import "price_terms.proto";
@@ -67,8 +68,8 @@ message ProviderCodeCost {
   // The billing class, methodology and setting the charges were filed under;
   // all unset for an all-terms figure.
   PriceTerms terms = 1;
-  // Priced rows behind the stats.
-  int64 n = 2;
+  // Priced rows behind the stats. Was `n` (same field number).
+  int64 count_charge = 2;
   // The lowest and highest of those charges (#1645).
   string min_charge = 3;
   string max_charge = 4;
@@ -92,6 +93,19 @@ message ProviderCodeCost {
   // "1 through 10" count made the sample size a range. As
   // CodeCostStatsMessage's.
   bool sample_count_exact = 13;
+  // The percentage of billed charges the rows filed under the percent of total
+  // billed charges methodology pay (#2121), in whole percent with 2 decimal
+  // places (39.00 is 39%). count_pct rows have a percentage: the filed one when
+  // it is above 0 and at most 100, else the row's dollar amount over its gross
+  // charge when that is in range too. count_pct_filed of them filed it. All
+  // empty or 0 when no row has one (no row under that methodology, or none
+  // with a percentage).
+  int64 count_pct = 14;
+  int64 count_pct_filed = 15;
+  string min_pct = 16;
+  string max_pct = 17;
+  string avg_pct = 18;
+  string median_pct = 19;
 }
 
 message HospitalProviderCodeCostsRequest {
@@ -138,6 +152,14 @@ message HospitalProviderCodeCostsResponse {
   string revision_id = 9;
   // The grouping of `costs`, as the request asked.
   GroupBy group_by = 10;
+  // The code's plain-English description from the code catalog, as
+  // ListCodeProviderHospitalsResponse's; unset until the AI description job
+  // has processed the code. Read from Postgres on every call, not from the
+  // snapshot or the response cache, so a new description shows at once.
+  optional string ai_description = 11;
+  // Unset when ai_description is, and for descriptions stored before
+  // provenance was recorded.
+  optional LlmProvenance ai_description_provenance = 12;
 }
 
 message ProviderCodeRef {
@@ -243,6 +265,13 @@ enum HospitalProviderCodeCostOrder {
   // std dev / average, 0 when the average is 0.
   HOSPITAL_PROVIDER_CODE_COST_ORDER_COEFFICIENT_OF_VARIATION_ASC = 16;
   HOSPITAL_PROVIDER_CODE_COST_ORDER_COEFFICIENT_OF_VARIATION_DESC = 17;
+  // By the percentage of billed charges (#2135): the row's median_pct or
+  // avg_pct. A row with no percentage (nothing filed under the percent of total
+  // billed charges methodology) is listed last, ascending or descending.
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_MEDIAN_PCT_ASC = 18;
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_MEDIAN_PCT_DESC = 19;
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_AVG_PCT_ASC = 20;
+  HOSPITAL_PROVIDER_CODE_COST_ORDER_AVG_PCT_DESC = 21;
 }
 
 message ListCodeProviderHospitalsRequest {
@@ -314,6 +343,29 @@ message ListCodeProviderHospitalsResponse {
   optional LlmProvenance ai_description_provenance = 9;
   // The grouping of the rows, as the request asked.
   GroupBy group_by = 10;
+  // The code's network-wide median price under each billing class, with the
+  // hospitals behind each and the facility share of the two: the same figures
+  // as CodeSummary's (#2144), read from the same code_price rollup (not from
+  // the snapshot or the response cache, like ai_description), so a caller that
+  // draws a facility-against-professional bar needs no
+  // GetCodeProviderPriceDistribution call per class (#2165). They cover all of
+  // the code's methodologies and settings and ignore group_by, filter, query
+  // and state: use them only for the unfiltered code, never next to a filtered
+  // list. Each is unset when the code has no figure for it, and all are unset
+  // on any page after the first (page_token set), and when code_price has no
+  // row for the code or cannot be read. The rollup is rewritten at the end of
+  // each deployer run, a few minutes after the snapshot it reads is published,
+  // so priced_at (the snapshot's time, as CodeSummary.priced_at) can be older
+  // than snapshot_id for a while.
+  optional double facility_median_price = 11;
+  optional double professional_median_price = 12;
+  optional int32 facility_hospital_count = 13;
+  optional int32 professional_hospital_count = 14;
+  // As CodeSummary.facility_share: a percent with 2 decimals, unset unless both
+  // medians are.
+  optional double facility_share = 15;
+  // When the snapshot the figures come from was published; unset with them.
+  optional google.protobuf.Timestamp priced_at = 16;
 }
 
 // A distribution needs exactly one value per hospital, so the filter must name
@@ -345,6 +397,24 @@ message CodeProviderPriceDistributionRequest {
   // national ones. Empty means every hospital. INVALID_ARGUMENT for anything
   // that is not a state code.
   string state = 11;
+  // Also return `facility` and `professional` on the response (#2165): the
+  // median and hospital count of each class's per-hospital figures, as one
+  // GetCodeProviderPriceDistribution call per class would return them
+  // (group_by BILLING_CLASS filtered to the class, or with the filter's
+  // methodology BILLING_CLASS_METHODOLOGY), without the histogram, so a page
+  // that draws a facility-against-professional bar needs no call of its own for
+  // it. Follows `state`, the filter's methodology and whether group_by is
+  // ALL_EXCEPT_PER_DIEM (then each hospital's figure for a class leaves its per
+  // diem rows out, as the distribution does, so a stay's price is not pulled
+  // down by day rates; every other grouping includes them): not the rest of
+  // group_by, the filter's billing class or setting, min_sample_count or
+  // statistic (always the average of each hospital's charges, every hospital
+  // counted). Both
+  // classes are always returned, whatever billing class the request's filter
+  // picks: the figures do not follow a selected class, so a caller that wants
+  // the figures of a picked class reads `distribution`. False leaves them
+  // unset and costs nothing.
+  bool include_class_breakdown = 12;
 }
 
 message CodeProviderPriceDistributionResponse {
@@ -357,6 +427,17 @@ message CodeProviderPriceDistributionResponse {
   string code = 4;
   // The grouping the figures were taken at, as the request asked.
   GroupBy group_by = 5;
+  // Set only with include_class_breakdown, and only when at least one hospital
+  // has a positive figure for the class (the same hospitals a distribution of
+  // that class counts).
+  optional ClassPrice facility = 6;
+  optional ClassPrice professional = 7;
+}
+
+// One billing class's median price and the hospitals behind it.
+message ClassPrice {
+  double median_price = 1;
+  int32 hospital_count = 2;
 }
 
 message GetCodeProviderTermsSummaryRequest {

@@ -340,6 +340,20 @@ const listCodesOutputSchema = {
             type: "integer",
             description: "Hospitals with a positive average price behind median_price and price_spread."
           },
+          facility_median_price: {
+            type: "number",
+            description: "Network-wide median over hospitals of each hospital's average price under the facility billing class (unlike median_price, not blended). Unset when no hospital files the class. Network-wide even when hospital_id is set."
+          },
+          professional_median_price: {
+            type: "number",
+            description: "As facility_median_price, for the professional billing class."
+          },
+          facility_hospital_count: { type: "integer", description: "Hospitals behind facility_median_price." },
+          professional_hospital_count: { type: "integer", description: "Hospitals behind professional_median_price." },
+          facility_share: {
+            type: "number",
+            description: "facility_median_price / (facility + professional median) as a percent with 2 decimals; the professional share is 100 minus it. Unset unless both medians are."
+          },
           priced_at: {
             type: "object",
             description: "When the snapshot the price figures come from was published (protobuf Timestamp: seconds, nanos); recomputed with each snapshot.",
@@ -496,7 +510,11 @@ const PROVIDER_ORDERS = [
   "HOSPITAL_PROVIDER_CODE_COST_ORDER_STD_DEV_ASC",
   "HOSPITAL_PROVIDER_CODE_COST_ORDER_STD_DEV_DESC",
   "HOSPITAL_PROVIDER_CODE_COST_ORDER_COEFFICIENT_OF_VARIATION_ASC",
-  "HOSPITAL_PROVIDER_CODE_COST_ORDER_COEFFICIENT_OF_VARIATION_DESC"
+  "HOSPITAL_PROVIDER_CODE_COST_ORDER_COEFFICIENT_OF_VARIATION_DESC",
+  "HOSPITAL_PROVIDER_CODE_COST_ORDER_MEDIAN_PCT_ASC",
+  "HOSPITAL_PROVIDER_CODE_COST_ORDER_MEDIAN_PCT_DESC",
+  "HOSPITAL_PROVIDER_CODE_COST_ORDER_AVG_PCT_ASC",
+  "HOSPITAL_PROVIDER_CODE_COST_ORDER_AVG_PCT_DESC"
 ] as const
 
 const CODE_SORTS = [
@@ -509,7 +527,13 @@ const CODE_SORTS = [
   "CODE_SORT_SAMPLE_COUNT_ASC",
   "CODE_SORT_MEDIAN_PRICE_DESC",
   "CODE_SORT_MEDIAN_PRICE_ASC",
-  "CODE_SORT_PRICE_SPREAD_DESC"
+  "CODE_SORT_PRICE_SPREAD_DESC",
+  "CODE_SORT_FACILITY_MEDIAN_PRICE_DESC",
+  "CODE_SORT_PROFESSIONAL_MEDIAN_PRICE_DESC",
+  "CODE_SORT_FACILITY_SHARE_DESC",
+  "CODE_SORT_FACILITY_SHARE_ASC",
+  "CODE_SORT_FACILITY_MEDIAN_PRICE_ASC",
+  "CODE_SORT_PROFESSIONAL_MEDIAN_PRICE_ASC"
 ] as const
 
 const STATE_SCHEMA = {
@@ -517,7 +541,7 @@ const STATE_SCHEMA = {
   description: "Optional two-letter USPS state code (e.g. \"TX\", case-insensitive): only hospitals with a location in that state are counted. A hospital in several states counts in each, so state figures can add up to more than national ones. Empty means every hospital; anything that is not a state code is rejected as INVALID_ARGUMENT."
 }
 
-const PRICE_STATISTICS = ["PRICE_STATISTIC_UNSPECIFIED", "PRICE_STATISTIC_AVERAGE", "PRICE_STATISTIC_MEDIAN", "PRICE_STATISTIC_MIN", "PRICE_STATISTIC_MAX"] as const
+const PRICE_STATISTICS = ["PRICE_STATISTIC_UNSPECIFIED", "PRICE_STATISTIC_AVERAGE", "PRICE_STATISTIC_MEDIAN", "PRICE_STATISTIC_MIN", "PRICE_STATISTIC_MAX", "PRICE_STATISTIC_PERCENT_OF_CHARGES_AVERAGE", "PRICE_STATISTIC_PERCENT_OF_CHARGES_MEDIAN"] as const
 
 const PAYER_HOSPITAL_ORDERS = [
   "PAYER_HOSPITAL_ORDER_UNSPECIFIED",
@@ -542,7 +566,11 @@ const PAYER_ORDERS = [
   "COEFFICIENT_OF_VARIATION_ASC",
   "COEFFICIENT_OF_VARIATION_DESC",
   "SAMPLE_COUNT_ASC",
-  "SAMPLE_COUNT_DESC"
+  "SAMPLE_COUNT_DESC",
+  "MEDIAN_PCT_ASC",
+  "MEDIAN_PCT_DESC",
+  "AVG_PCT_ASC",
+  "AVG_PCT_DESC"
 ] as const
 
 const GROUP_BYS = [
@@ -550,7 +578,9 @@ const GROUP_BYS = [
   "GROUP_BY_BILLING_CLASS",
   "GROUP_BY_METHODOLOGY",
   "GROUP_BY_ALL",
-  "GROUP_BY_FACILITY_PLUS_PROFESSIONAL"
+  "GROUP_BY_FACILITY_PLUS_PROFESSIONAL",
+  "GROUP_BY_BILLING_CLASS_METHODOLOGY",
+  "GROUP_BY_ALL_EXCEPT_PER_DIEM"
 ] as const
 
 const groupByZod = z.enum(GROUP_BYS).optional()
@@ -561,19 +591,20 @@ const PAYER_GROUP_BYS = [
   "PAYER_GROUP_BY_PER_COMBINATION",
   "PAYER_GROUP_BY_BILLING_CLASS",
   "PAYER_GROUP_BY_METHODOLOGY",
-  "PAYER_GROUP_BY_ALL"
+  "PAYER_GROUP_BY_ALL",
+  "PAYER_GROUP_BY_ALL_EXCEPT_PER_DIEM"
 ] as const
 const payerGroupByZod = z.enum(PAYER_GROUP_BYS).optional()
 const payerGroupBySchema = {
   type: "string",
   enum: [...PAYER_GROUP_BYS],
-  description: "How a hospital's rates are grouped (default PAYER_GROUP_BY_PER_COMBINATION: per billing class + methodology + setting). The filter must name every term the grouping keeps (PAYER_GROUP_BY_ALL with no filter, PAYER_GROUP_BY_BILLING_CLASS plus a billing_class, PAYER_GROUP_BY_METHODOLOGY plus a methodology, per-combination all three), else INVALID_ARGUMENT."
+  description: "How a hospital's rates are grouped (default PAYER_GROUP_BY_PER_COMBINATION: per billing class + methodology + setting). The filter must name every term the grouping keeps (PAYER_GROUP_BY_ALL with no filter, PAYER_GROUP_BY_BILLING_CLASS plus a billing_class, PAYER_GROUP_BY_METHODOLOGY plus a methodology, per-combination all three; PAYER_GROUP_BY_ALL_EXCEPT_PER_DIEM is one figure like ALL but without the per diem rows, so a day rate does not pull a stay's price down), else INVALID_ARGUMENT."
 }
 
 const groupBySchema = {
   type: "string",
   enum: [...GROUP_BYS],
-  description: "Which rows exist: one per billing class + methodology + setting (GROUP_BY_PER_COMBINATION, the default), per billing class, per methodology, or GROUP_BY_ALL (one figure over everything, blending billing classes), or GROUP_BY_FACILITY_PLUS_PROFESSIONAL (one row per methodology and setting the hospital files under both the facility and the professional billing class, the two added together, i.e. the combined bill; terms are methodology and setting, no billing class; no row where there is no professional counterpart). Applied before filter, which may name only the terms the grouping still keeps (e.g. GROUP_BY_BILLING_CLASS with a methodology filter, or GROUP_BY_ALL with any filter, is rejected as INVALID_ARGUMENT)."
+  description: "Which rows exist: one per billing class + methodology + setting (GROUP_BY_PER_COMBINATION, the default), per billing class, per methodology, or GROUP_BY_ALL (one figure over everything, blending billing classes), GROUP_BY_ALL_EXCEPT_PER_DIEM (like ALL but without per diem rows, since a per diem is a price for a day), GROUP_BY_BILLING_CLASS_METHODOLOGY (one row per billing class and methodology, pooled over settings; name both in the filter for one figure per hospital), or GROUP_BY_FACILITY_PLUS_PROFESSIONAL (one row per methodology and setting the hospital files under both the facility and the professional billing class, the two added together, i.e. the combined bill; terms are methodology and setting, no billing class; no row where there is no professional counterpart). Applied before filter, which may name only the terms the grouping still keeps (e.g. GROUP_BY_BILLING_CLASS with a methodology filter, or GROUP_BY_ALL with any filter, is rejected as INVALID_ARGUMENT)."
 }
 
 const priceTermsFilterZod = z.object({
@@ -1030,9 +1061,10 @@ const toolDefinitions = {
         state: STATE_SCHEMA,
         statistic: {
           type: "string",
-          enum: ["PRICE_STATISTIC_AVERAGE", "PRICE_STATISTIC_MEDIAN", "PRICE_STATISTIC_MIN", "PRICE_STATISTIC_MAX"],
-          description: "Which per-hospital figure to distribute (default average)."
-        }
+          enum: ["PRICE_STATISTIC_AVERAGE", "PRICE_STATISTIC_MEDIAN", "PRICE_STATISTIC_MIN", "PRICE_STATISTIC_MAX", "PRICE_STATISTIC_PERCENT_OF_CHARGES_AVERAGE", "PRICE_STATISTIC_PERCENT_OF_CHARGES_MEDIAN"],
+          description: "Which per-hospital figure to distribute (default average). The PERCENT_OF_CHARGES_* values distribute the percentage of billed charges of rows filed under the percent-of-total-billed-charges methodology instead of dollars (every value in the response is then in whole percent; hospitals with no such row are left out); best with the methodology named in the filter."
+        },
+        include_class_breakdown: { type: "boolean", description: "Also return `facility` and `professional` (median and hospital count of each billing class's per-hospital figures, the same as one call per class, no histogram) so a facility-vs-professional comparison needs one call. Both classes are always returned whatever billing class the filter names; they follow state, the filter's methodology and whether group_by is GROUP_BY_ALL_EXCEPT_PER_DIEM." }
       },
       required: ["code_type", "code"]
     }
@@ -1064,7 +1096,7 @@ const toolDefinitions = {
   list_code_payers: {
     name: "list_code_payers",
     title: "List payers' negotiated rates for a code",
-    description: "Every insurer (payer) with a negotiated rate for a (code_type, code), one summary per payer and billing class/methodology/setting, across hospitals, most hospitals first: hospital_count, n, min/avg/median-of-hospital-averages/max rate and the price terms. Billing classes, methodologies and settings are never blended. Use the returned payer_slug (e.g. \"aetna\") with list_code_payer_hospitals. Backed by the hospital-prices serving snapshot; fails with UNAVAILABLE until the server has opened one.",
+    description: "Every insurer (payer) with a negotiated rate for a (code_type, code), one summary per payer and billing class/methodology/setting, across hospitals, most hospitals first: hospital_count, count_rate, min/avg/median-of-hospital-averages/max rate and the price terms. Billing classes, methodologies and settings are never blended. Use the returned payer_slug (e.g. \"aetna\") with list_code_payer_hospitals. Backed by the hospital-prices serving snapshot; fails with UNAVAILABLE until the server has opened one.",
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1127,7 +1159,7 @@ const toolDefinitions = {
         code: { type: "string" },
         payer_slug: { type: "string", description: "A payer_slug from list_code_payers, e.g. \"aetna\"." },
         filter: priceTermsFilterSchema,
-        order_by: { type: "string", enum: [...PAYER_ORDERS], description: "Defaults to AVG_ASC (cheapest average first). STD_DEV_* orders by how widely the payer's rates vary at a hospital, COEFFICIENT_OF_VARIATION_* by that spread relative to the price level (comparable across hospitals); pair those with min_sample_count since thin filings have an artificially low spread." },
+        order_by: { type: "string", enum: [...PAYER_ORDERS], description: "Defaults to AVG_ASC (cheapest average first). STD_DEV_* orders by how widely the payer's rates vary at a hospital, COEFFICIENT_OF_VARIATION_* by that spread relative to the price level (comparable across hospitals); pair those with min_sample_count since thin filings have an artificially low spread. MEDIAN_PCT_*/AVG_PCT_* order by the percentage of billed charges of rows filed under the percent-of-total-billed-charges methodology (dollar-only figures last)." },
         state: STATE_SCHEMA,
         min_sample_count: { type: "integer", description: "Only hospitals whose figure has at least this many billing records (sample count lower bound). 0 keeps every hospital; negative is rejected." },
         page_size: { type: "integer" },
@@ -1188,7 +1220,8 @@ const toolDefinitions = {
         bin_count: { type: "integer", description: "Histogram bars. Defaults to 16, max 200." },
         reference_price: { type: "number", description: "When positive, the response counts how many are priced strictly below it." },
         statistic: { type: "string", enum: [...PRICE_STATISTICS], description: "Which figure to distribute (default average)." },
-        min_hospital_count: { type: "integer", description: "Leave out payers filed by fewer hospitals than this (0 or 1: none). Negative is rejected." }
+        min_hospital_count: { type: "integer", description: "Leave out payers filed by fewer hospitals than this (0 or 1: none). Negative is rejected." },
+        include_class_breakdown: { type: "boolean", description: "Also return `facility` and `professional` (median price over payers and payer_count for each billing class, always both, for a facility-vs-professional comparison in one call). Only answered for a national request (no state, average statistic, min_hospital_count 0/1, a filter naming no methodology or setting); otherwise they are left unset." }
       },
       required: ["code_type", "code"]
     }
@@ -1355,11 +1388,15 @@ const toolDefinitions = {
         sort: {
           type: "string",
           enum: [...CODE_SORTS],
-          description: "Ordering for the returned codes. CODE_SORT_UNSPECIFIED (default) sorts code-alphabetical. CODE_SORT_HOSPITAL_COUNT_DESC sorts most-hospitals-reporting first, for pre-sorted 'top codes' pages. CODE_SORT_SAMPLE_COUNT_DESC sorts by largest network-wide pricing sample size first (sample_count_max, always network-wide regardless of hospital_id) - ranks by how many billing records actually back a code's pricing, rather than by how many hospitals merely report it. CODE_SORT_CODE_DESC is code-alphabetical, reverse order. CODE_SORT_RELEVANCE ranks best text match first (exact code, then code prefix, then description word-start, then description substring), ties broken by network-wide sample count descending, and is only meaningful - and the default - when query is set; without a query it behaves like CODE_SORT_SAMPLE_COUNT_DESC. CODE_SORT_HOSPITAL_COUNT_ASC / CODE_SORT_SAMPLE_COUNT_ASC surface rare codes (fewest hospitals / smallest network-wide sample first; zero counts sort last). CODE_SORT_MEDIAN_PRICE_DESC/ASC order by the network-wide median price (CodeSummary.median_price) and CODE_SORT_PRICE_SPREAD_DESC by the widest hospital-to-hospital spread (price_spread); codes with no price sort last in every price order. Price figures are network-wide even when hospital_id is set, and blend billing classes, methodologies and settings."
+          description: "Ordering for the returned codes. CODE_SORT_UNSPECIFIED (default) sorts code-alphabetical. CODE_SORT_HOSPITAL_COUNT_DESC sorts most-hospitals-reporting first, for pre-sorted 'top codes' pages. CODE_SORT_SAMPLE_COUNT_DESC sorts by largest network-wide pricing sample size first (sample_count_max, always network-wide regardless of hospital_id) - ranks by how many billing records actually back a code's pricing, rather than by how many hospitals merely report it. CODE_SORT_CODE_DESC is code-alphabetical, reverse order. CODE_SORT_RELEVANCE ranks best text match first (exact code, then code prefix, then description word-start, then description substring), ties broken by network-wide sample count descending, and is only meaningful - and the default - when query is set; without a query it behaves like CODE_SORT_SAMPLE_COUNT_DESC. CODE_SORT_HOSPITAL_COUNT_ASC / CODE_SORT_SAMPLE_COUNT_ASC surface rare codes (fewest hospitals / smallest network-wide sample first; zero counts sort last). CODE_SORT_MEDIAN_PRICE_DESC/ASC order by the network-wide median price (CodeSummary.median_price) and CODE_SORT_PRICE_SPREAD_DESC by the widest hospital-to-hospital spread (price_spread); codes with no price sort last in every price order. Price figures are network-wide even when hospital_id is set, and blend billing classes, methodologies and settings. Billing-class orders (upstream #2144, list_codes only): CODE_SORT_FACILITY_MEDIAN_PRICE_DESC/ASC and CODE_SORT_PROFESSIONAL_MEDIAN_PRICE_DESC/ASC rank by that class's median price; CODE_SORT_FACILITY_SHARE_DESC (mostly-facility codes first) / _ASC (mostly-professional first) rank by facility_share. Codes lacking the figure, or with fewer hospitals than min_class_hospital_count, sort last."
         },
         query: {
           type: "string",
           description: "Case-insensitive text search: matches the code as a prefix, and substrings of the raw and AI-generated descriptions. Descriptions are only searched for queries of 4+ characters; shorter queries match the code prefix only. When set, code_type may be left empty to search across code types."
+        },
+        min_class_hospital_count: {
+          type: "integer",
+          description: "Minimum hospitals behind a billing class's median for the class orders (facility/professional median price: that class; facility share: both classes). A code below it sorts last but is still listed. Without it a code one hospital files can top the share lists. Ignored by other sorts and with hospital_id; negative is INVALID_ARGUMENT."
         },
         hospital_id: {
           type: "string",
@@ -1686,7 +1723,8 @@ function createMcpServer(): Server {
           bin_count: z.number().int().optional(),
           reference_price: z.number().optional(),
           statistic: z.enum(PRICE_STATISTICS).optional(),
-          state: z.string().optional()
+          state: z.string().optional(),
+          include_class_breakdown: z.boolean().optional()
         }).parse(request.params.arguments)
 
         return callProviderRpc("get_code_provider_price_distribution", "GetCodeProviderPriceDistribution", {
@@ -1698,7 +1736,8 @@ function createMcpServer(): Server {
           bin_count: args.bin_count ?? 0,
           reference_price: args.reference_price ?? 0,
           statistic: args.statistic ?? "PRICE_STATISTIC_UNSPECIFIED",
-          state: args.state ?? ""
+          state: args.state ?? "",
+          include_class_breakdown: args.include_class_breakdown ?? false
         }, { code_type: args.code_type, code: args.code })
       }
 
@@ -1807,7 +1846,8 @@ function createMcpServer(): Server {
           code_type: z.string(), code: z.string(),
           group_by: payerGroupByZod, filter: priceTermsFilterZod, state: z.string().optional(),
           bin_count: z.number().int().optional(), reference_price: z.number().optional(),
-          statistic: z.enum(PRICE_STATISTICS).optional(), min_hospital_count: z.number().int().optional()
+          statistic: z.enum(PRICE_STATISTICS).optional(), min_hospital_count: z.number().int().optional(),
+          include_class_breakdown: z.boolean().optional()
         }).parse(request.params.arguments)
 
         return callProviderRpc("get_code_payers_price_distribution", "GetCodePayersPriceDistribution", {
@@ -1819,7 +1859,8 @@ function createMcpServer(): Server {
           bin_count: args.bin_count ?? 0,
           reference_price: args.reference_price ?? 0,
           statistic: args.statistic ?? "PRICE_STATISTIC_UNSPECIFIED",
-          min_hospital_count: args.min_hospital_count ?? 0
+          min_hospital_count: args.min_hospital_count ?? 0,
+          include_class_breakdown: args.include_class_breakdown ?? false
         }, { code_type: args.code_type, code: args.code }, payerClient)
       }
 
@@ -1944,7 +1985,8 @@ function createMcpServer(): Server {
           page_token: z.string().optional(),
           sort: z.enum(CODE_SORTS).optional(),
           query: z.string().optional(),
-          hospital_id: z.string().optional()
+          hospital_id: z.string().optional(),
+          min_class_hospital_count: z.number().int().optional()
         }).parse(request.params.arguments)
 
         log("INFO", "grpc request", { tool: "list_codes", code_type: args.code_type ?? "", query: args.query ?? "" })
@@ -1954,7 +1996,7 @@ function createMcpServer(): Server {
         try {
           response = await new Promise((resolve, reject) => {
             client.ListCodes(
-              { code_type: args.code_type ?? "", page_size: args.page_size ?? 0, page_token: args.page_token ?? "", sort: args.sort ?? "CODE_SORT_UNSPECIFIED", query: args.query ?? "", hospital_id: args.hospital_id ?? "" },
+              { code_type: args.code_type ?? "", page_size: args.page_size ?? 0, page_token: args.page_token ?? "", sort: args.sort ?? "CODE_SORT_UNSPECIFIED", query: args.query ?? "", hospital_id: args.hospital_id ?? "", min_class_hospital_count: args.min_class_hospital_count ?? 0 },
               (err: any, resp: any) => {
                 if (err) reject(err)
                 else resolve(resp)

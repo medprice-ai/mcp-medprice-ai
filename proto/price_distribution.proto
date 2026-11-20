@@ -26,6 +26,20 @@ enum PriceStatistic {
   PRICE_STATISTIC_MIN = 3;
   // The hospital's highest filed price for the code.
   PRICE_STATISTIC_MAX = 4;
+  // The percentage of billed charges (#2135) instead of dollars: each
+  // hospital's figure is the average or the median of the percentages of its
+  // rows filed under the percent of total billed charges methodology (as
+  // ProviderCodeCost.avg_pct / median_pct; payer rates: PlanRate's), and a
+  // hospital with no such row is left out. Every value of the response (the
+  // percentiles, the histogram's edges, the points' `price`, the request's
+  // reference_price) is then in whole percent (39.0 is 39%), and each hospital
+  // counts once as always. Most useful with the methodology named (group_by
+  // METHODOLOGY or BILLING_CLASS_METHODOLOGY and the filter naming percent of
+  // total billed charges); under another grouping a hospital's percentage rows
+  // are pooled with its other rows' (which have none), so it is its figure
+  // over its percentage rows alone.
+  PRICE_STATISTIC_PERCENT_OF_CHARGES_AVERAGE = 5;
+  PRICE_STATISTIC_PERCENT_OF_CHARGES_MEDIAN = 6;
 }
 
 // A hospital and its price for the code (the request's statistic, the average

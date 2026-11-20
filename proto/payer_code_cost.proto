@@ -109,6 +109,19 @@ message PayerSummary {
   int64 sample_count_sum_min = 13;
   int64 sample_count_sum_max = 14;
   bool sample_count_exact = 15;
+  // The percentage of billed charges the rows filed under the percent of total
+  // billed charges methodology pay (#2135), as PlanRate's (#2121): whole percent
+  // with 2 decimal places (39.00 is 39%), count_pct of the summary's rate lines
+  // have a percentage, count_pct_filed of them filed it. avg_pct weights each
+  // plan row by its count_pct; median_pct is the median of the per-hospital
+  // averages, as median_hospital_avg is for dollars (not of the lines). 0 and
+  // empty when no line has one.
+  int64 count_pct = 16;
+  int64 count_pct_filed = 17;
+  string min_pct = 18;
+  string max_pct = 19;
+  string avg_pct = 20;
+  string median_pct = 21;
 }
 
 message ListCodePayersResponse {
@@ -153,6 +166,18 @@ message PlanRate {
   int64 sample_count_sum_min = 13;
   int64 sample_count_sum_max = 14;
   bool sample_count_exact = 15;
+  // The percentage of billed charges the lines filed under the percent of total
+  // billed charges methodology pay (#2121), in whole percent with 2 decimal
+  // places (39.00 is 39%): count_pct lines have a percentage (the filed one when
+  // above 0 and at most 100, else dollar amount over gross charge when that is
+  // in range too), count_pct_filed of them filed it. 0 and empty when no line
+  // has one. Where a plan has one line these equal that line's percentage.
+  int64 count_pct = 16;
+  int64 count_pct_filed = 17;
+  string min_pct = 18;
+  string max_pct = 19;
+  string avg_pct = 20;
+  string median_pct = 21;
   // Were billing_class, methodology and setting strings before #1567.
   reserved 2, 4, 5;
 }
@@ -199,6 +224,13 @@ enum HospitalPayerRateOrder {
   // By sample_count_sum_min, the guaranteed sample size.
   SAMPLE_COUNT_ASC = 14;
   SAMPLE_COUNT_DESC = 15;
+  // By the percentage of billed charges (#2135): the median or average of
+  // HospitalPayerRate's median_pct / avg_pct. A figure with no percentage (a
+  // dollar methodology) is listed last, ascending or descending.
+  MEDIAN_PCT_ASC = 16;
+  MEDIAN_PCT_DESC = 17;
+  AVG_PCT_ASC = 18;
+  AVG_PCT_DESC = 19;
   // Every order but HOSPITAL_NAME lists a figure with a 0 in the sorted statistic
   // (nothing filed, no spread, no sample count) last, ascending or descending,
   // as the provider orders do. Most payer rows carry no sample counts (#1973),
@@ -297,6 +329,21 @@ message CodePayersPriceDistributionRequest {
   // Leaves out payers filed by fewer hospitals than this (0 or 1: none).
   // INVALID_ARGUMENT when negative.
   int64 min_hospital_count = 9;
+  // Also returns each billing class's median price over the payers
+  // (`facility` and `professional` on the response), so a page that draws a
+  // facility-against-professional bar needs no call per class (#2165). Both
+  // classes are always returned, whatever billing class the filter picks.
+  // The figure is each payer's average over its hospitals' rate lines, as the
+  // distribution's AVERAGE, and the class median is over the payers. With
+  // group_by ALL_EXCEPT_PER_DIEM the lines that are per diem are left out, as in
+  // the distribution beside it (a day's rate would pull a stay's price down), a
+  // live query over the code's rows; every other grouping includes them, read
+  // from the snapshot's payer_code_prices. Both are national, and only a
+  // request that asks for exactly that gets them (no `state`, statistic AVERAGE
+  // or unspecified, min_hospital_count 0 or 1, a filter naming no methodology
+  // or setting). Any other request leaves them unset, never a figure of other
+  // terms. False leaves them unset and costs nothing.
+  bool include_class_breakdown = 10;
 }
 
 // CodePriceDistributionResponse's hospital points are payers here:
@@ -310,6 +357,17 @@ message CodePayersPriceDistributionResponse {
   string snapshot_id = 2;
   string code_type = 3;
   string code = 4;
+  // Set only with include_class_breakdown, for a request it can answer (see
+  // there), and only when at least one payer has a positive figure for the
+  // class.
+  optional PayerClassPrice facility = 5;
+  optional PayerClassPrice professional = 6;
+}
+
+// One billing class's median price and the payers behind it.
+message PayerClassPrice {
+  double median_price = 1;
+  int32 payer_count = 2;
 }
 
 message CodePayerPriceDistributionResponse {
@@ -349,6 +407,15 @@ message HospitalPayerRate {
   int64 sample_count_sum_min = 16;
   int64 sample_count_sum_max = 17;
   bool sample_count_exact = 18;
+  // The percentage of billed charges, as PlanRate's (#2121), over every rate
+  // line of the payer's plans at the hospital under these terms (the median of
+  // the lines, not of the plans' medians), #2135.
+  int64 count_pct = 19;
+  int64 count_pct_filed = 20;
+  string min_pct = 21;
+  string max_pct = 22;
+  string avg_pct = 23;
+  string median_pct = 24;
   // Were billing_class, methodology and setting strings before #1567.
   reserved 10, 11, 12;
 }
@@ -642,5 +709,12 @@ enum PayerGroupBy {
   // classes.
   PAYER_GROUP_BY_ALL = 3;
   reserved 4, 5;
+  // One row, pooled over every set of terms except the per diem ones (#2092):
+  // a per diem rate is a price for a day, so next to a stay's price it pulls an
+  // all-terms figure down. No terms set. A hospital that files a code only per
+  // diem for the payer has no row. Supported where a distribution is drawn
+  // (GetCodePayerPriceDistribution, GetCodePayersPriceDistribution), not by
+  // GetPayer's top_codes, which rejects it.
+  PAYER_GROUP_BY_ALL_EXCEPT_PER_DIEM = 6;
   reserved "GROUP_BY_FACILITY_PLUS_PROFESSIONAL";
 }

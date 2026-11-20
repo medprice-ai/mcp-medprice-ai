@@ -105,9 +105,17 @@ message PriceTermsFilter {
 //   BILLING_CLASS    2 rows: facility (#1 and #2 pooled), professional (#3).
 //   METHODOLOGY      2 rows: fee schedule (#1 and #3 pooled), case rate (#2).
 //   ALL              1 row: #1, #2 and #3 pooled; no terms set.
+//   ALL_EXCEPT_PER_DIEM  1 row: ALL without the per diem rows, so #1 and #3
+//     pooled if #2 were a per diem filing (none of the three is per diem here,
+//     so it equals ALL); no terms set.
+//   BILLING_CLASS_METHODOLOGY  3 rows: #1, #2 and #3 each on its own, since each
+//     class and methodology is filed under one setting; two settings under the
+//     same class and methodology would be one pooled row (#2101).
 //
 // group_by then filter:
 //   BILLING_CLASS + billing_class = facility    1 row: facility (#1 + #2).
+//   BILLING_CLASS_METHODOLOGY + billing_class = facility + methodology =
+//     fee schedule                              1 row: #1 (over its settings).
 //   METHODOLOGY + methodology = case rate       1 row: case rate (#2).
 //   PER_COMBINATION + billing_class = facility  2 rows: #1 and #2.
 //   BILLING_CLASS + methodology = case rate     INVALID_ARGUMENT: grouping by
@@ -128,9 +136,10 @@ message PriceTermsFilter {
 //
 // So the filter may only name the terms the grouping still tells rows apart by:
 // all three for PER_COMBINATION, the billing class for BILLING_CLASS, the
-// methodology for METHODOLOGY, the methodology and the setting for
-// FACILITY_PLUS_PROFESSIONAL, none for ALL. No pool by setting, or by a billing
-// class and a methodology together, is built.
+// methodology for METHODOLOGY, the billing class and the methodology for
+// BILLING_CLASS_METHODOLOGY, the methodology and the setting for
+// FACILITY_PLUS_PROFESSIONAL, none for ALL and ALL_EXCEPT_PER_DIEM. No pool by
+// setting is built.
 enum GroupBy {
   // One row per billing class, methodology and setting, the default.
   GROUP_BY_PER_COMBINATION = 0;
@@ -150,4 +159,16 @@ enum GroupBy {
   // class. The median and standard deviation are those of every facility charge
   // paired with every professional one.
   GROUP_BY_FACILITY_PLUS_PROFESSIONAL = 4;
+  // One row per billing class and methodology, pooled over settings (#2101):
+  // "this hospital's facility fee under fee schedule, over every setting it
+  // files that under". Terms: billing class and methodology, no setting. With
+  // both named in the filter it is one figure per hospital, as a distribution
+  // needs.
+  GROUP_BY_BILLING_CLASS_METHODOLOGY = 5;
+  // One all-terms row per hospital over the rows whose methodology is not per
+  // diem (#2092): a per diem rate is a price for a day, so next to a DRG's
+  // price for a stay it pulls an all-terms figure down. No terms set, like ALL.
+  // A hospital that files a code only per diem has no row; one that files no per
+  // diem row for it has its ALL figure.
+  GROUP_BY_ALL_EXCEPT_PER_DIEM = 6;
 }

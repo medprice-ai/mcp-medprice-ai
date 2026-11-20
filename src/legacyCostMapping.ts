@@ -38,7 +38,7 @@ export const legacyGrouping = (methodology?: LegacyMethodology) =>
 
 type ProviderCodeCost = {
   terms?: { methodology?: string } | null
-  n?: string
+  count_charge?: string
   min_charge?: string
   max_charge?: string
   avg_charge?: string
@@ -61,7 +61,7 @@ type HospitalProviderCodeCostsResponse = {
 }
 
 // ProviderCodeCost -> CodeCostStatsMessage. Dropped (no legacy counterpart):
-// n, filed_min, filed_max. min/max are now the charges' own min/max, not
+// count_charge, filed_min, filed_max. min/max are now the charges' own min/max, not
 // widened by the file's per-item minimum/maximum as the legacy figures were.
 const toCostStats = (codeType: string | undefined, code: string | undefined, c: ProviderCodeCost) => ({
   code_type: codeType ?? "",
